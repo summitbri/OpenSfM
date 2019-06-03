@@ -87,6 +87,7 @@ setuptools.setup(
     #     'six',
     #     'xmltodict>=0.10.2',
     #     'Pillow>=6.0.0',
+    #     'psutil>5.6.2'
     # ],
     cmdclass={'bdist_wheel': platform_bdist_wheel},
 )
