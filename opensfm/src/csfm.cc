@@ -1,12 +1,15 @@
 #include <iostream>
 #include <vector>
 #include <pybind11/pybind11.h>
+#include <pybind11/stl.h>
 #include <pybind11/eigen.h>
 
 #include "types.h"
 #include "hahog.cc"
+#include "matching.h"
 #include "multiview.cc"
 #include "akaze_bind.h"
+#include "matching.h"
 #include "bundle/bundle_adjuster.h"
 #include "openmvs_exporter.h"
 #include "depthmap_bind.h"
@@ -72,6 +75,8 @@ PYBIND11_MODULE(csfm, m) {
         py::arg("use_adaptive_suppression") = false
   );
 
+  m.def("match_using_words", csfm::match_using_words);
+
   m.def("triangulate_bearings_dlt", csfm::TriangulateBearingsDLT);
   m.def("triangulate_bearings_midpoint", csfm::TriangulateBearingsMidpoint);
 
@@ -86,7 +91,6 @@ PYBIND11_MODULE(csfm, m) {
     .def("get_equirectangular_camera", &BundleAdjuster::GetEquirectangularCamera)
     .def("get_shot", &BundleAdjuster::GetShot)
     .def("get_point", &BundleAdjuster::GetPoint)
-    .def("get_gcp_point", &BundleAdjuster::GetGcpPoint) 
     .def("set_scale_sharing", &BundleAdjuster::SetScaleSharing)
     .def("get_reconstruction", &BundleAdjuster::GetReconstruction)
     .def("add_perspective_camera", &BundleAdjuster::AddPerspectiveCamera)
@@ -116,9 +120,6 @@ PYBIND11_MODULE(csfm, m) {
     .def("add_point_position_shot", &BundleAdjuster::AddPointPositionShot)
     .def("add_point_bearing_shot", &BundleAdjuster::AddPointBearingShot)
     .def("add_point_position_world", &BundleAdjuster::AddPointPositionWorld)
-    .def("add_gcp_point", &BundleAdjuster::AddGcpPoint)
-    .def("add_gcp_world_observation", &BundleAdjuster::AddGcpWorldObservation)
-    .def("add_gcp_image_observation", &BundleAdjuster::AddGcpImageObservation)
     .def("add_linear_motion", &BundleAdjuster::AddLinearMotion)
     .def("set_internal_parameters_prior_sd", &BundleAdjuster::SetInternalParametersPriorSD)
     .def("set_compute_covariances", &BundleAdjuster::SetComputeCovariances)
@@ -204,7 +205,7 @@ PYBIND11_MODULE(csfm, m) {
     .def(py::init())
     .def_property("p", &BAPoint::GetPoint, &BAPoint::SetPoint)
     .def_readwrite("id", &BAPoint::id)
-    .def_readwrite("reprojection_error", &BAPoint::reprojection_error)
+    .def_readwrite("reprojection_errors", &BAPoint::reprojection_errors)
   ;
 
   py::class_<BARelativeMotion>(m, "BARelativeMotion")

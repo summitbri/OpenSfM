@@ -205,52 +205,6 @@ void BundleAdjuster::AddPointPositionPrior(
   point_position_priors_.push_back(p);
 }
 
-void BundleAdjuster::AddGcpPoint(
-    const std::string &id,
-    double x,
-    double y,
-    double z,
-    bool constant) {
-  BAPoint p;
-  p.id = id;
-  p.parameters[0] = x;
-  p.parameters[1] = y;
-  p.parameters[2] = z;
-  p.constant = constant;
-  p.reprojection_error = -1;
-  gcp_points_[id] = p;
-}
-
-void BundleAdjuster::AddGcpWorldObservation(
-    const std::string &point,
-    double x,
-    double y,
-    double z,
-    bool has_altitude) {
-  BAGcpWorldObservation o;
-  o.point = &gcp_points_[point];
-  o.coordinates[0] = x;
-  o.coordinates[1] = y;
-  o.coordinates[2] = z;
-  o.has_altitude = has_altitude;
-  gcp_world_observations_.push_back(o);
-}
-
-void BundleAdjuster::AddGcpImageObservation(
-    const std::string &shot,
-    const std::string &point,
-    double x,
-    double y) {
-  BAPointProjectionObservation o;
-  o.shot = &shots_[shot];
-  o.camera = cameras_[o.shot->camera].get();
-  o.point = &gcp_points_[point];
-  o.coordinates[0] = x;
-  o.coordinates[1] = y;
-  gcp_image_observations_.push_back(o);
-}
-
-
 void BundleAdjuster::SetOriginShot(const std::string &shot_id) {
   BAShot *shot = &shots_[shot_id];
   for (int i = 0; i < 6; ++i) shot->parameters[0] = 0;
@@ -519,13 +473,6 @@ void BundleAdjuster::Run() {
     }
   }
 
-  for (auto &i : gcp_points_) {
-    if (i.second.constant) {
-      problem.AddParameterBlock(i.second.parameters.data(), 3);
-      problem.SetParameterBlockConstant(i.second.parameters.data());
-    }
-  }
-
   // Add reprojection error blocks
   ceres::LossFunction *projection_loss = CreateLossFunction(
       point_projection_loss_name_, point_projection_loss_threshold_);
@@ -575,32 +522,6 @@ void BundleAdjuster::Run() {
     problem.AddResidualBlock(cost_function,
                              NULL,
                              pp.point->parameters.data());
-  }
-
-  // Add ground control point world observations
-  for (auto &observation : gcp_world_observations_) {
-    if (observation.has_altitude) {
-      ceres::CostFunction* cost_function =
-          new ceres::AutoDiffCostFunction<PointPositionPriorError, 3, 3>(
-              new PointPositionPriorError(observation.coordinates, 0.01));
-
-      problem.AddResidualBlock(cost_function,
-                                NULL,
-                                observation.point->parameters.data());
-    } else {
-      ceres::CostFunction* cost_function =
-          new ceres::AutoDiffCostFunction<PointPositionPrior2dError, 2, 3>(
-              new PointPositionPrior2dError(observation.coordinates, 0.001));
-
-      problem.AddResidualBlock(cost_function,
-                                NULL,
-                                observation.point->parameters.data());
-    }
-  }
-
-  // Add ground control point image observations
-  for (auto &observation : gcp_image_observations_) {
-    AddObservationResidualBlock(observation, NULL, &problem);
   }
 
   // Add internal parameter priors blocks
@@ -998,77 +919,70 @@ void BundleAdjuster::ComputeCovariances(ceres::Problem *problem) {
 void BundleAdjuster::ComputeReprojectionErrors() {
   // Init errors
   for (auto &i : points_) {
-    i.second.reprojection_error = 0;
+    i.second.reprojection_errors.clear();
   }
 
   // Sum over all observations
   for (int i = 0; i < point_projection_observations_.size(); ++i) {
-    switch (point_projection_observations_[i].camera->type()) {
+    auto& projection = point_projection_observations_[i];
+    switch (projection.camera->type()) {
       case BA_PERSPECTIVE_CAMERA:
       {
-        BAPerspectiveCamera &c = static_cast<BAPerspectiveCamera &>(*point_projection_observations_[i].camera);
+        BAPerspectiveCamera &c = static_cast<BAPerspectiveCamera &>(*projection.camera);
 
-        PerspectiveReprojectionError pre(point_projection_observations_[i].coordinates[0],
-                                          point_projection_observations_[i].coordinates[1],
+        PerspectiveReprojectionError pre(projection.coordinates[0],
+                                          projection.coordinates[1],
                                           1.0);
         double residuals[2];
         pre(c.parameters,
-            point_projection_observations_[i].shot->parameters.data(),
-            point_projection_observations_[i].point->parameters.data(),
+            projection.shot->parameters.data(),
+            projection.point->parameters.data(),
             residuals);
-        double error = sqrt(residuals[0] * residuals[0] + residuals[1] * residuals[1]);
-        point_projection_observations_[i].point->reprojection_error =
-            std::max(point_projection_observations_[i].point->reprojection_error, error);
+        projection.point->reprojection_errors[projection.shot->id] = Eigen::Vector2d(residuals[0], residuals[1]);
         break;
       }
       case BA_BROWN_PERSPECTIVE_CAMERA:
       {
-        BABrownPerspectiveCamera &c = static_cast<BABrownPerspectiveCamera &>(*point_projection_observations_[i].camera);
+        BABrownPerspectiveCamera &c = static_cast<BABrownPerspectiveCamera &>(*projection.camera);
 
-        BrownPerspectiveReprojectionError bpre(point_projection_observations_[i].coordinates[0],
-                                                point_projection_observations_[i].coordinates[1],
+        BrownPerspectiveReprojectionError bpre(projection.coordinates[0],
+                                                projection.coordinates[1],
                                                 1.0);
         double residuals[2];
         bpre(c.parameters,
-              point_projection_observations_[i].shot->parameters.data(),
-              point_projection_observations_[i].point->parameters.data(),
+              projection.shot->parameters.data(),
+              projection.point->parameters.data(),
               residuals);
-        double error = sqrt(residuals[0] * residuals[0] + residuals[1] * residuals[1]);
-        point_projection_observations_[i].point->reprojection_error =
-            std::max(point_projection_observations_[i].point->reprojection_error, error);
+        projection.point->reprojection_errors[projection.shot->id] = Eigen::Vector2d(residuals[0], residuals[1]);
         break;
       }
       case BA_FISHEYE_CAMERA:
       {
-        BAFisheyeCamera &c = static_cast<BAFisheyeCamera &>(*point_projection_observations_[i].camera);
+        BAFisheyeCamera &c = static_cast<BAFisheyeCamera &>(*projection.camera);
 
-        FisheyeReprojectionError pre(point_projection_observations_[i].coordinates[0],
-                                      point_projection_observations_[i].coordinates[1],
+        FisheyeReprojectionError pre(projection.coordinates[0],
+                                      projection.coordinates[1],
                                       1.0);
         double residuals[2];
         pre(c.parameters,
-            point_projection_observations_[i].shot->parameters.data(),
-            point_projection_observations_[i].point->parameters.data(),
+            projection.shot->parameters.data(),
+            projection.point->parameters.data(),
             residuals);
-        double error = sqrt(residuals[0] * residuals[0] + residuals[1] * residuals[1]);
-        point_projection_observations_[i].point->reprojection_error =
-            std::max(point_projection_observations_[i].point->reprojection_error, error);
+        projection.point->reprojection_errors[projection.shot->id] = Eigen::Vector2d(residuals[0], residuals[1]);
         break;
       }
       case BA_EQUIRECTANGULAR_CAMERA:
       {
-        BAEquirectangularCamera &c = static_cast<BAEquirectangularCamera &>(*point_projection_observations_[i].camera);
+        BAEquirectangularCamera &c = static_cast<BAEquirectangularCamera &>(*projection.camera);
 
-        EquirectangularReprojectionError ere(point_projection_observations_[i].coordinates[0],
-                                              point_projection_observations_[i].coordinates[1],
+        EquirectangularReprojectionError ere(projection.coordinates[0],
+                                              projection.coordinates[1],
                                               1.0);
         double residuals[3];
-        ere(point_projection_observations_[i].shot->parameters.data(),
-            point_projection_observations_[i].point->parameters.data(),
+        ere(projection.shot->parameters.data(),
+            projection.point->parameters.data(),
             residuals);
-        double error = sqrt(residuals[0] * residuals[0] + residuals[1] * residuals[1] + residuals[2] * residuals[2]);
-        point_projection_observations_[i].point->reprojection_error =
-            std::max(point_projection_observations_[i].point->reprojection_error, error);
+        projection.point->reprojection_errors[projection.shot->id] = Eigen::Vector3d(residuals[0], residuals[1], residuals[2]);
         break;
       }
     }
@@ -1101,10 +1015,6 @@ BAShot BundleAdjuster::GetShot(const std::string &id) {
 
 BAPoint BundleAdjuster::GetPoint(const std::string &id) {
   return points_[id];
-}
-
-BAPoint BundleAdjuster::GetGcpPoint(const std::string &id) {
-  return gcp_points_[id];
 }
 
 BAReconstruction BundleAdjuster::GetReconstruction(const std::string &id) {

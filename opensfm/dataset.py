@@ -432,7 +432,7 @@ class DataSet(object):
         Return path of feature file for specified image
         :param image: Image name, with extension (i.e. 123.jpg)
         """
-        return os.path.join(self._feature_path(), image + '.npz')
+        return os.path.join(self._feature_path(), image + '.features.npz')
 
     def _save_features(self, filepath, points, descriptors, colors=None):
         io.mkdir_p(self._feature_path())
@@ -465,20 +465,18 @@ class DataSet(object):
     def save_feature_index(self, image, index):
         index.save(self._feature_index_file(image))
 
-    def _preemptive_features_file(self, image):
-        """
-        Return path of preemptive feature file (a short list of the full feature file)
-        for specified image
-        :param image: Image name, with extension (i.e. 123.jpg)
-        """
-        return os.path.join(self._feature_path(), image + '_preemptive' + '.npz')
+    def _words_file(self, image):
+        return os.path.join(self._feature_path(), image + '.words.npz')
 
-    def load_preemtive_features(self, image):
-        s = np.load(self._preemptive_features_file(image))
-        return s['points'], s['descriptors']
+    def words_exist(self, image):
+        return os.path.isfile(self._words_file(image))
 
-    def save_preemptive_features(self, image, points, descriptors):
-        self._save_features(self._preemptive_features_file(image), points, descriptors)
+    def load_words(self, image):
+        s = np.load(self._words_file(image))
+        return s['words'].astype(np.int32)
+
+    def save_words(self, image, words):
+        np.savez_compressed(self._words_file(image), words=words.astype(np.uint16))
 
     def _matches_path(self):
         """Return path of matches directory"""
@@ -688,10 +686,10 @@ class DataSet(object):
             fout.write(ply)
 
     def _ground_control_points_file(self):
-        return os.path.join(self.data_path, 'gcp_list.txt')
+        return os.path.join(self.data_path, 'ground_control_points.json')
 
-    def ground_control_points_exist(self):
-        return os.path.isfile(self._ground_control_points_file())
+    def _gcp_list_file(self):
+        return os.path.join(self.data_path, 'gcp_list.txt')
 
     def load_ground_control_points(self):
         """Load ground control points.
@@ -702,8 +700,17 @@ class DataSet(object):
         exif = {image: self.load_exif(image) for image in self.images()}
         reference = self.load_reference()
 
-        with io.open_rt(self._ground_control_points_file()) as fin:
-            return io.read_ground_control_points_list(fin, reference, exif)
+        gcp = []
+        if os.path.isfile(self._gcp_list_file()):
+            with io.open_rt(self._gcp_list_file()) as fin:
+                gcp = io.read_gcp_list(fin, reference, exif)
+
+        pcs = []
+        if os.path.isfile(self._ground_control_points_file()):
+            with io.open_rt(self._ground_control_points_file()) as fin:
+                pcs = io.read_ground_control_points(fin, reference)
+
+        return gcp + pcs
 
     def image_as_array(self, image):
         logger.warning("image_as_array() is deprecated. Use load_image() instead.")

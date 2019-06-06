@@ -35,25 +35,30 @@ akaze_use_isotropic_diffusion: no
 # Params for HAHOG
 hahog_peak_threshold: 0.00001
 hahog_edge_threshold: 10
-hahog_normalize_to_uchar: no
+hahog_normalize_to_uchar: yes
 
 # Params for general matching
 lowes_ratio: 0.8              # Ratio test for matches
-preemptive_lowes_ratio: 0.6   # Ratio test for preemptive matches
-matcher_type: FLANN           # FLANN or BRUTEFORCE
+matcher_type: FLANN           # FLANN or BRUTEFORCE or WORDS
 
 # Params for FLANN matching
 flann_branching: 16           # See OpenCV doc
 flann_iterations: 10          # See OpenCV doc
 flann_checks: 200             # Smaller -> Faster (but might lose good matches)
 
+# Params for BoW matching
+bow_file: bow_hahog_root_uchar.npz
+bow_images_to_match: 15       # Number of images to do detailed matching.
+bow_words_to_match: 50        # Number of words to explore per feature.
+bow_num_checks: 20            # Number of matching features to check.
+bow_matcher_type: FLANN       # Matcher type to assign words to features
+
 # Params for preemptive matching
 matching_gps_distance: 150            # Maximum gps distance between two images for matching
 matching_gps_neighbors: 0             # Number of images to match selected by GPS distance. Set to 0 to use no limit (or disable if matching_gps_distance is also 0)
 matching_time_neighbors: 0            # Number of images to match selected by time taken. Set to 0 to disable
 matching_order_neighbors: 0           # Number of images to match selected by image name. Set to 0 to disable
-preemptive_max: 200                   # Number of features to use for preemptive matching
-preemptive_threshold: 0               # If number of matches passes the threshold -> full feature matching
+matching_bow_neighbors: 0             # Number of images to match selected by BoW distance. Set to 0 to disable
 
 # Params for geometric estimation
 robust_matching_threshold: 0.004        # Outlier threshold for fundamental matrix estimation as portion of image width
@@ -63,6 +68,7 @@ five_point_algo_threshold: 0.004        # Outlier threshold for essential matrix
 five_point_algo_min_inliers: 20         # Minimum number of inliers for considering a two view reconstruction valid
 triangulation_threshold: 0.006          # Outlier threshold for accepting a triangulated point in radians
 triangulation_min_ray_angle: 1.0        # Minimum angle between views to accept a triangulated point
+triangulation_type: FULL              # Triangulation type : either considering all rays (FULL), or sing a RANSAC variant (ROBUST)
 resection_threshold: 0.004              # Outlier threshold for resection in radians
 resection_min_inliers: 10               # Minimum number of resection inliers to accept it
 
@@ -80,8 +86,10 @@ radial_distorsion_k2_sd: 0.01   # The standard deviation of the second radial di
 radial_distorsion_k3_sd: 0.01   # The standard deviation of the third radial distortion parameter
 radial_distorsion_p1_sd: 0.01   # The standard deviation of the first tangential distortion parameter
 radial_distorsion_p2_sd: 0.01   # The standard deviation of the second tangential distortion parameter
-bundle_outlier_threshold: 0.006     # Points with larger reprojection error after bundle adjustment are removed
-optimize_camera_parameters: yes     # Optimize internal camera parameters during bundle
+bundle_outlier_filtering_type: FIXED    # Type of threshold for filtering outlier : either fixed value (FIXED) or based on actual distribution (AUTO)
+bundle_outlier_auto_ratio: 3.0          # For AUTO filtering type, projections with larger reprojection than ratio-times-mean, are removed
+bundle_outlier_fixed_threshold: 0.006   # For FIXED filtering type, projections with larger reprojection error after bundle adjustment are removed
+optimize_camera_parameters: yes         # Optimize internal camera parameters during bundle
 
 retriangulation: yes                # Retriangulate all points from time to time
 retriangulation_ratio: 1.2          # Retriangulate when the number of points grows by this ratio
