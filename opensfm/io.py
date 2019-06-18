@@ -860,6 +860,69 @@ def import_bundler(data_path, bundle_file, list_file, track_file,
 
 # PLY
 
+def ply_header(count_vertices, with_normals=False):
+    if with_normals:
+        header = [
+            "ply",
+            "format ascii 1.0",
+            "element vertex {}".format(count_vertices),
+            "property float x",
+            "property float y",
+            "property float z",
+            "property float nx",
+            "property float ny",
+            "property float nz",
+            "property uchar diffuse_red",
+            "property uchar diffuse_green",
+            "property uchar diffuse_blue",
+            "end_header",
+        ]
+    else:
+        header = [
+            "ply",
+            "format ascii 1.0",
+            "element vertex {}".format(count_vertices),
+            "property float x",
+            "property float y",
+            "property float z",
+            "property uchar diffuse_red",
+            "property uchar diffuse_green",
+            "property uchar diffuse_blue",
+            "end_header",
+        ]
+    return header
+
+
+def points_to_ply_string(vertices):
+    header = ply_header(len(vertices))
+    return '\n'.join(header + vertices + [''])
+
+
+def ply_to_points(filename):
+    points, normals, colors = [], [], []
+    with open(filename, 'r') as fin:
+        line = fin.readline()
+        while 'end_header' not in line:
+            line = fin.readline()
+        line = fin.readline()
+        while line != '':
+            line = fin.readline()
+            tokens = line.rstrip().split(' ')
+            if len(tokens) == 6 or len(tokens) == 7: # XYZ and RGB(A)
+                x, y, z, r, g, b = tokens[0:6]
+                nx, ny, nz = 0, 0, 0
+            elif len(tokens) > 7:                    # XYZ + Normal + RGB
+                x, y, z = tokens[0:3]
+                nx, ny, nz = tokens[3:6]
+                r, g, b = tokens[6:9]
+            else:
+                break
+            points.append([float(x), float(y), float(z)])
+            normals.append([float(nx), float(ny), float(nz)])
+            colors.append([int(r), int(g), int(b)])
+    return np.array(points), np.array(normals), np.array(colors)
+
+
 def reconstruction_to_ply(reconstruction, no_cameras=False, no_points=False):
     """Export reconstruction points as a PLY string."""
     vertices = []
@@ -882,18 +945,4 @@ def reconstruction_to_ply(reconstruction, no_cameras=False, no_points=False):
                     s = "{} {} {} {} {} {}".format(
                         p[0], p[1], p[2], int(c[0]), int(c[1]), int(c[2]))
                     vertices.append(s)
-
-    header = [
-        "ply",
-        "format ascii 1.0",
-        "element vertex {}".format(len(vertices)),
-        "property float x",
-        "property float y",
-        "property float z",
-        "property uchar diffuse_red",
-        "property uchar diffuse_green",
-        "property uchar diffuse_blue",
-        "end_header",
-    ]
-
-    return '\n'.join(header + vertices + [''])
+    return points_to_ply_string(vertices)
