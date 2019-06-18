@@ -540,6 +540,7 @@ void BundleAdjuster::Run() {
         problem.AddResidualBlock(cost_function,
                                   NULL,
                                   c.parameters);
+        if (i.second->constant) problem.SetParameterBlockConstant(c.parameters);
         break;
       }
       case BA_BROWN_PERSPECTIVE_CAMERA:
@@ -561,6 +562,7 @@ void BundleAdjuster::Run() {
         problem.AddResidualBlock(cost_function,
                                   NULL,
                                   c.parameters);
+        if (i.second->constant) problem.SetParameterBlockConstant(c.parameters);
         break;
       }
       case BA_FISHEYE_CAMERA:
@@ -576,6 +578,7 @@ void BundleAdjuster::Run() {
         problem.AddResidualBlock(cost_function,
                                   NULL,
                                   c.parameters);
+        if (i.second->constant) problem.SetParameterBlockConstant(c.parameters);
         break;
       }
       case BA_EQUIRECTANGULAR_CAMERA:
