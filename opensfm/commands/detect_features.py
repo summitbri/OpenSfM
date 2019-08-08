@@ -28,7 +28,7 @@ class Command:
 
         start = timer()
         processes = data.config['processes']
-        parallel_map(detect, arguments, processes)
+        parallel_map(detect, arguments, processes, 1)
         end = timer()
         with open(data.profile_log(), 'a') as fout:
             fout.write('detect_features: {0}\n'.format(end - start))
@@ -97,7 +97,6 @@ def detect(args):
         n_closest = data.config['bow_words_to_match']
         closest_words = bows.map_to_words(
             f_sorted, n_closest, data.config['bow_matcher_type'])
-        closest_words = closest_words[order, :]
         data.save_words(image, closest_words)
 
     end = timer()

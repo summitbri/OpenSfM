@@ -102,6 +102,7 @@ def shot_from_json(key, obj, cameras):
     metadata.capture_time = obj.get("capture_time")
     metadata.gps_dop = obj.get("gps_dop")
     metadata.gps_position = obj.get("gps_position")
+    metadata.skey = obj.get("skey")
 
     shot = types.Shot()
     shot.id = key
@@ -166,6 +167,8 @@ def reconstruction_from_json(obj):
     # Extract main and unit shots
     if 'main_shot' in obj:
         reconstruction.main_shot = obj['main_shot']
+    if 'main_shots' in obj:
+        reconstruction.main_shots = obj['main_shots']
     if 'unit_shot' in obj:
         reconstruction.unit_shot = obj['unit_shot']
 
@@ -334,6 +337,8 @@ def reconstruction_to_json(reconstruction):
     # Extract main and unit shots
     if hasattr(reconstruction, 'main_shot'):
         obj['main_shot'] = reconstruction.main_shot
+    if hasattr(reconstruction, 'main_shots'):
+        obj['main_shots'] = reconstruction.main_shots
     if hasattr(reconstruction, 'unit_shot'):
         obj['unit_shot'] = reconstruction.unit_shot
 
@@ -484,6 +489,41 @@ def read_ground_control_points(fileobj, reference):
             point.observations.append(o)
         points.append(point)
     return points
+
+
+def write_ground_control_points(gcp, fileobj, reference):
+    """Write ground control points to json file."""
+    obj = {"points": []}
+
+    for point in gcp:
+        point_obj = {}
+        point_obj['id'] = point.id
+        if point.lla:
+            point_obj['position'] = {
+                'latitude': point.lla['latitude'],
+                'longitude': point.lla['longitude'],
+            }
+            if point.has_altitude:
+                point_obj['position']['altitude'] = point.lla['altitude']
+        elif point.coordinates:
+            lat, lon, alt = reference.to_lla(*point.coordinates)
+            point_obj['position'] = {
+                'latitude': lat,
+                'longitude': lon,
+            }
+            if point.has_altitude:
+                point_obj['position']['altitude'] = alt
+
+        point_obj['observations'] = []
+        for observation in point.observations:
+            point_obj['observations'].append({
+                'shot_id': observation.shot_id,
+                'projection': tuple(observation.projection),
+            })
+
+        obj['points'].append(point_obj)
+
+    json_dump(obj, fileobj)
 
 
 def mkdir_p(path):
@@ -699,8 +739,13 @@ def export_bundler(image_list, reconstructions, track_graph, bundle_file_path,
             if shot_id in shots:
                 shot = shots[shot_id]
                 camera = shot.camera
+                if type(camera) == types.BrownPerspectiveCamera:
+                    # Will aproximate Brown model, not optimal
+                    focal_normalized = camera.focal_x
+                else:
+                    focal_normalized = camera.focal
                 scale = max(camera.width, camera.height)
-                focal = camera.focal * scale
+                focal = focal_normalized * scale
                 k1 = camera.k1
                 k2 = camera.k2
                 R = shot.pose.get_rotation_matrix()
