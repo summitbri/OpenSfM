@@ -7,6 +7,7 @@ import os.path
 import scipy.spatial as spatial
 
 from opensfm import bow
+from opensfm import vlad
 from opensfm import context
 from opensfm import feature_loader
 
@@ -167,13 +168,14 @@ def preempt_candidates(images_ref, images_cand,
 
 def construct_pairs(results, max_neighbors, exifs, enforce_other_cameras):
     """Construct final sets of pairs to match"""
-    pairs = set()
-    for im, order, other in results:
+    pairs = dict()
+    for im, distances, other in results:
+        order = np.argsort(distances)
         if enforce_other_cameras:
-            pairs = pairs.union(pairs_from_neighbors(im, exifs, order, other, max_neighbors))
+            pairs.update(pairs_from_neighbors(im, exifs, distances, order, other, max_neighbors))
         else:
             for i in order[:max_neighbors]:
-                pairs.add(tuple(sorted((im, other[i]))))
+                pairs[tuple(sorted((im, other[i])))] = distances[i]
     return pairs
 
 
@@ -203,7 +205,7 @@ def match_bow_unwrap_args(args):
 def match_vlad_unwrap_args(args):
     """ Wrapper for parralel processing of VLAD """
     image, other_images, histograms = args
-    return vlad_distances(image, other_images, histograms)
+    return vlad.vlad_distances(image, other_images, histograms)
 
 
 def match_candidates_by_time(images_ref, images_cand, exifs, max_neighbors):
@@ -307,7 +309,7 @@ def match_candidates_from_metadata(images_ref, images_cand, exifs, data):
                                        exifs, reference, vlad_neighbors,
                                        vlad_gps_distance, vlad_gps_neighbors,
                                        vlad_other_cameras)
-        pairs = d | t | o | b | v
+        pairs = d | t | o | set(b) | set(v)
 
     pairs = ordered_pairs(pairs, images_ref)
 
@@ -336,7 +338,7 @@ def bow_distances(image, other_images, histograms):
             h2 = histograms[im2]
             distances.append(np.fabs(h - h2).sum())
             other.append(im2)
-    return image, np.argsort(distances), other
+    return image, distances, other
 
 
 def load_histograms(data, images):
@@ -347,6 +349,9 @@ def load_histograms(data, images):
     bows = bow.load_bows(data.config)
     for im in images:
         filtered_words = feature_loader.instance.load_words(data, im, masked=True)
+        if filtered_words is None:
+            logger.error("No words in image {}".format(im))
+            continue
         if len(filtered_words) <= min_num_feature:
             logger.warning("Too few filtered features in image {}: {}".format(
                 im, len(filtered_words)))
@@ -364,65 +369,17 @@ def vlad_histograms(images, data):
     if len(images) == 0:
         return {}
 
-    words, _ = bow.load_vlad_words_and_frequencies(data.config)
+    words = vlad.instance.load_words(data)
     vlads = {}
     for im in images:
         _, features, _ = feature_loader.instance.load_points_features_colors(
             data, im, masked=True)
-        vlad = unnormalized_vlad(features, words)
-        vlad = signed_square_root_normalize(vlad)
-        vlads[im] = vlad
+        vlads[im] = vlad.instance.vlad_histogram(im, features, words)
 
     return vlads
 
 
-def unnormalized_vlad(features, centers):
-    """ Compute unnormalized VLAD histograms from a set of
-        features in relation to centers.
-
-        Returns the unnormalized VLAD vector.
-    """
-    vlad = np.zeros(centers.shape, dtype=np.float32)
-    for f in features:
-        i = np.argmin(np.linalg.norm(f-centers, axis=1))
-        vlad[i, :] += f-centers[i]
-    vlad = np.ndarray.flatten(vlad)
-    return vlad
-
-
-def signed_square_root_normalize(v):
-    """ Compute Signed Square Root (SSR) normalization on
-        a vector.
-
-        Returns the SSR normalized vector.
-    """
-    v = np.sign(v) * np.sqrt(np.abs(v))
-    v /= np.linalg.norm(v)
-    return v
-
-
-def vlad_distances(image, other_images, histograms):
-    """ Compute VLAD-based distance (L2 on VLAD-histogram)
-        between an image and other images.
-
-        Returns the image, the order of the other images,
-        and the other images.
-    """
-    if image not in histograms:
-        return image, [], []
-
-    distances = []
-    other = []
-    h = histograms[image]
-    for im2 in other_images:
-        if im2 != image and im2 in histograms:
-            h2 = histograms[im2]
-            distances.append(np.linalg.norm(h - h2))
-            other.append(im2)
-    return image, np.argsort(distances), other
-
-
-def pairs_from_neighbors(image, exifs, order, other, max_neighbors):
+def pairs_from_neighbors(image, exifs, distances, order, other, max_neighbors):
     """Construct matching pairs given closest ordered neighbors.
 
     Pairs will of form (image, im2), im2 being the closest max_neighbors
@@ -432,18 +389,19 @@ def pairs_from_neighbors(image, exifs, order, other, max_neighbors):
     same_camera, other_cameras = [], []
     for i in order:
         im2 = other[i]
+        d = distances[i]
         if exifs[im2]['camera'] == exifs[image]['camera']:
             if len(same_camera) < max_neighbors:
-                same_camera.append(im2)
+                same_camera.append((im2, d))
         else:
             if len(other_cameras) < max_neighbors:
-                other_cameras.append(im2)
+                other_cameras.append((im2, d))
         if len(same_camera) + len(other_cameras) >= 2 * max_neighbors:
             break
 
-    pairs = set()
-    for im2 in same_camera+other_cameras:
-        pairs.add(tuple(sorted((image, im2))))
+    pairs = dict()
+    for im2, d in same_camera+other_cameras:
+        pairs[tuple(sorted((image, im2)))] = d
     return pairs
 
 
