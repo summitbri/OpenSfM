@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 from __future__ import print_function
 
@@ -50,7 +50,7 @@ build_c_extension()
 
 setuptools.setup(
     name='opensfm',
-    version='0.4.1a7',
+    version='0.3.0',
     description='A Structure from Motion library',
     long_description=open('README.md').read(),
     long_description_content_type='text/markdown',
