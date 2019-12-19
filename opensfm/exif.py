@@ -126,6 +126,13 @@ def get_gpano_from_xmp(xmp):
                 return i
     return {}
 
+def get_pix4d_from_xmp(xmp):
+    for i in xmp:
+        for k in i:
+            if '@Camera:ModelType' in k:
+                return i
+    return {}
+
 
 class EXIF:
 
@@ -178,8 +185,19 @@ class EXIF:
         return self._decode_make_model(model)
 
     def extract_projection_type(self):
+        projections = ['perspective', 'fisheye', 'brown', 'dual', 'equirectangular', 'spherical']
+
         gpano = get_gpano_from_xmp(self.xmp)
-        return gpano.get('GPano:ProjectionType', 'perspective')
+        gpano_projection = gpano.get('GPano:ProjectionType', "").lower()
+        if gpano_projection in projections:
+            return gpano_projection
+        
+        pix4d = get_pix4d_from_xmp(self.xmp)
+        camera_model = pix4d.get('@Camera:ModelType', "").lower()
+        if camera_model in projections:
+            return camera_model
+       
+        return 'perspective'
 
     def extract_focal(self):
         make, model = self.extract_make(), self.extract_model()
