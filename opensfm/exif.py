@@ -316,7 +316,11 @@ class EXIF:
     def extract_band_name(self):
         for tags in self.xmp:
             if 'Camera:BandName' in tags:
-                return str(tags['Camera:BandName']).replace(" ", "")
+                if isinstance(tags['Camera:BandName'], str):
+                    band_name = tags['Camera:BandName']
+                elif isinstance(tags['Camera:BandName'], dict) and 'rdf:Seq' in tags['Camera:BandName']:
+                    band_name = tags['Camera:BandName']['rdf:Seq'].get('rdf:li', "RGB")
+                return band_name.replace(" ", "")
         return "RGB"
 
     def extract_exif(self):
