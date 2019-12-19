@@ -127,6 +127,13 @@ def get_gpano_from_xmp(xmp):
                 return i
     return {}
 
+def get_pix4d_from_xmp(xmp):
+    for i in xmp:
+        for k in i:
+            if '@Camera:ModelType' in k:
+                return i
+    return {}
+
 
 class EXIF:
 
@@ -179,8 +186,19 @@ class EXIF:
         return self._decode_make_model(model)
 
     def extract_projection_type(self):
+        projections = ['perspective', 'fisheye', 'brown', 'dual', 'equirectangular', 'spherical']
+
         gpano = get_gpano_from_xmp(self.xmp)
-        return gpano.get('GPano:ProjectionType', 'perspective')
+        gpano_projection = gpano.get('GPano:ProjectionType', "").lower()
+        if gpano_projection in projections:
+            return gpano_projection
+        
+        pix4d = get_pix4d_from_xmp(self.xmp)
+        camera_model = pix4d.get('@Camera:ModelType', "").lower()
+        if camera_model in projections:
+            return camera_model
+       
+        return 'perspective'
 
     def extract_focal(self):
         make, model = self.extract_make(), self.extract_model()
@@ -321,7 +339,11 @@ class EXIF:
     def extract_band_name(self):
         for tags in self.xmp:
             if 'Camera:BandName' in tags:
-                return str(tags['Camera:BandName']).replace(" ", "")
+                if isinstance(tags['Camera:BandName'], str):
+                    band_name = tags['Camera:BandName']
+                elif isinstance(tags['Camera:BandName'], dict) and 'rdf:Seq' in tags['Camera:BandName']:
+                    band_name = tags['Camera:BandName']['rdf:Seq'].get('rdf:li', "RGB")
+                return band_name.replace(" ", "")
         return "RGB"
 
     def extract_exif(self):
