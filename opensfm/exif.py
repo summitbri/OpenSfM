@@ -332,14 +332,18 @@ class EXIF:
         return 0.0
 
     def extract_band_name(self):
+        band_name = "RGB"
+
         for tags in self.xmp:
             if 'Camera:BandName' in tags:
                 if isinstance(tags['Camera:BandName'], str):
                     band_name = tags['Camera:BandName']
+                    break
                 elif isinstance(tags['Camera:BandName'], dict) and 'rdf:Seq' in tags['Camera:BandName']:
                     band_name = tags['Camera:BandName']['rdf:Seq'].get('rdf:li', "RGB")
-                return band_name.replace(" ", "")
-        return "RGB"
+                    break
+
+        return band_name.replace(" ", "")
 
     def extract_exif(self):
         width, height = self.extract_image_size()
