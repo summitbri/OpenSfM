@@ -341,8 +341,8 @@ class EXIF:
 
         for tags in self.xmp:
             if 'Camera:BandName' in tags:
-                if isinstance(tags['Camera:BandName'], str):
-                    band_name = tags['Camera:BandName']
+                if isinstance(tags['Camera:BandName'], string_types):
+                    band_name = str(tags['Camera:BandName'])
                     break
                 elif isinstance(tags['Camera:BandName'], dict) and 'rdf:Seq' in tags['Camera:BandName']:
                     band_name = tags['Camera:BandName']['rdf:Seq'].get('rdf:li', "RGB")
