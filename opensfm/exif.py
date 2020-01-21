@@ -198,7 +198,7 @@ class EXIF:
         if camera_model in projections:
             return camera_model
        
-        return 'perspective'
+        return 'brown'
 
     def extract_focal(self):
         make, model = self.extract_make(), self.extract_model()
@@ -341,7 +341,7 @@ class EXIF:
 
         for tags in self.xmp:
             if 'Camera:BandName' in tags:
-                if isinstance(tags['Camera:BandName'], str):
+                if isinstance(tags['Camera:BandName'], string_types):
                     band_name = tags['Camera:BandName']
                     break
                 elif isinstance(tags['Camera:BandName'], dict) and 'rdf:Seq' in tags['Camera:BandName']:
