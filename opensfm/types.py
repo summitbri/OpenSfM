@@ -338,7 +338,7 @@ class BrownPerspectiveCamera(Camera):
         y_distorted = yn * radial_distortion + y_tangential_distortion
 
         return np.array([self.focal_x * x_distorted + self.c_x,
-                         self.focal_y * y_distorted + self.c_y])
+                         self.focal_x * y_distorted + self.c_y]) # Not a typo, we modified this to only use focal_x
 
     def project_many(self, points):
         """Project 3D points in camera coordinates to the image plane."""
@@ -385,7 +385,7 @@ class BrownPerspectiveCamera(Camera):
     def get_K(self):
         """The calibration matrix."""
         return np.array([[self.focal_x, 0., self.c_x],
-                         [0., self.focal_y, self.c_y],
+                         [0., self.focal_x, self.c_y], # Not a typo, we modified this to only use focal_x
                          [0., 0., 1.]])
 
     def get_K_in_pixel_coordinates(self, width=None, height=None):

@@ -108,11 +108,11 @@ void BrownPerspectiveProject(const T* const camera,
 
   // Compute final projected point position.
   const T& focal_x = camera[BA_BROWN_CAMERA_FOCAL_X];
-  const T& focal_y = camera[BA_BROWN_CAMERA_FOCAL_Y];
+//   const T& focal_y = camera[BA_BROWN_CAMERA_FOCAL_Y];
   const T& c_x = camera[BA_BROWN_CAMERA_C_X];
   const T& c_y = camera[BA_BROWN_CAMERA_C_Y];
   projection[0] = focal_x * x_distorted + c_x;
-  projection[1] = focal_y * y_distorted + c_y;
+  projection[1] = focal_x * y_distorted + c_y; // Not a typo, we modified this to use only focal_x
 }
 
 struct BrownPerspectiveReprojectionError {
@@ -366,7 +366,7 @@ struct BrownInternalParametersPriorError {
   template <typename T>
   bool operator()(const T* const parameters, T* residuals) const {
     residuals[0] = T(focal_x_scale_) * (log(parameters[BA_BROWN_CAMERA_FOCAL_X]) - T(log_focal_x_estimate_));
-    residuals[1] = T(focal_y_scale_) * (log(parameters[BA_BROWN_CAMERA_FOCAL_Y]) - T(log_focal_y_estimate_));
+    residuals[1] = T(0); //T(focal_y_scale_) * (log(parameters[BA_BROWN_CAMERA_FOCAL_Y]) - T(log_focal_y_estimate_));
     residuals[2] = T(c_x_scale_) * (parameters[BA_BROWN_CAMERA_C_X] - T(c_x_estimate_));
     residuals[3] = T(c_y_scale_) * (parameters[BA_BROWN_CAMERA_C_Y] - T(c_y_estimate_));
     residuals[4] = T(k1_scale_) * (parameters[BA_BROWN_CAMERA_K1] - T(k1_estimate_));

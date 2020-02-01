@@ -253,7 +253,7 @@ def perspective_camera_from_brown(brown):
     camera.id = brown.id
     camera.width = brown.width
     camera.height = brown.height
-    camera.focal = (brown.focal_x + brown.focal_y) / 2.0
+    camera.focal = brown.focal_x
     camera.k1 = camera.k2 = 0.0
     return camera
 
