@@ -160,6 +160,20 @@ def _add_gcp_to_bundle(ba, gcp, shots):
                     observation.projection[1],
                     scale)
 
+def add_common_position_constraints(ba, shots):
+    """Enforces common position constraints for shots 
+    that have been captured at the same time"""
+    for s1 in shots:
+         for s2 in shots:
+            if s1 == s2:
+                continue
+            if s1.metadata.capture_time == s2.metadata.capture_time:
+                ba.add_common_position(s1.id, s2.id, 0.0, 0.0001)
+                ba.add_translation_prior(s1.id, s2.pose.translation[0],
+                                               s2.pose.translation[1],
+                                               s2.pose.translation[2],
+                                               0.10)
+    
 
 def bundle(graph, reconstruction, camera_priors, gcp, config):
     """Bundle adjust a reconstruction."""
@@ -188,6 +202,9 @@ def bundle(graph, reconstruction, camera_priors, gcp, config):
                     scale = graph[shot_id][track]['feature_scale']
                     ba.add_point_projection_observation(
                         shot_id, track, point[0], point[1], scale)
+
+    if config['bundle_common_position_constraints']:
+        add_common_position_constraints(ba, reconstruction.shots.values())
 
     if config['bundle_use_gps']:
         for shot in reconstruction.shots.values():
@@ -262,6 +279,18 @@ def bundle_single_view(graph, reconstruction, shot_id, camera_priors, config):
     r = shot.pose.rotation
     t = shot.pose.translation
     ba.add_shot(shot.id, camera.id, r, t, False)
+
+    if config['bundle_common_position_constraints']:
+        shots = reconstruction.shots.values()
+        for s in shots:
+            if s.id == shot.id:
+                continue
+            if s.metadata.capture_time == shot.metadata.capture_time:
+                ba.add_translation_prior(shot.id, s.pose.translation[0],
+                                               s.pose.translation[1],
+                                               s.pose.translation[2],
+                                               0.10)
+                break
 
     for track_id in graph[shot_id]:
         track = reconstruction.points[track_id]
