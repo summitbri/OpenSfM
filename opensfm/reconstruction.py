@@ -83,7 +83,7 @@ def _get_camera_from_bundle(ba, camera):
     elif camera.projection_type == 'brown':
         c = ba.get_brown_perspective_camera(camera.id)
         camera.focal_x = c.focal_x
-        camera.focal_y = c.focal_y
+        camera.focal_y = c.focal_x # not a typo, we modified brown to use a single focal value
         camera.c_x = c.c_x
         camera.c_y = c.c_y
         camera.k1 = c.k1
