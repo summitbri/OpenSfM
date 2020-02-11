@@ -496,15 +496,15 @@ def camera_from_exif_metadata(metadata, data):
         camera.width = metadata['width']
         camera.height = metadata['height']
         camera.projection_type = pt
-        camera.focal_x = calib['focal_x']
-        camera.focal_y = calib['focal_y']
-        camera.c_x = calib['c_x']
-        camera.c_y = calib['c_y']
-        camera.k1 = calib['k1']
-        camera.k2 = calib['k2']
-        camera.p1 = calib['p1']
-        camera.p2 = calib['p2']
-        camera.k3 = calib['k3']
+        camera.focal_x = calib.get('focal_x', calib['focal'])
+        camera.focal_y = calib.get('focal_y', calib['focal'])
+        camera.c_x = calib.get('c_x', 0.0)
+        camera.c_y = calib.get('c_y', 0.0)
+        camera.k1 = calib.get('k1', 0.0)
+        camera.k2 = calib.get('k2', 0.0)
+        camera.p1 = calib.get('p1', 0.0)
+        camera.p2 = calib.get('p2', 0.0)
+        camera.k3 = calib.get('k3', 0.0)
         return camera
     elif pt == 'fisheye':
         calib = (hard_coded_calibration(metadata)
