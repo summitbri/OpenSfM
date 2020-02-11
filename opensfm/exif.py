@@ -496,8 +496,8 @@ def camera_from_exif_metadata(metadata, data):
         camera.width = metadata['width']
         camera.height = metadata['height']
         camera.projection_type = pt
-        camera.focal_x = calib.get('focal_x', calib['focal'])
-        camera.focal_y = calib.get('focal_y', calib['focal'])
+        camera.focal_x = calib.get('focal_x', calib.get('focal', 0.0))
+        camera.focal_y = calib.get('focal_y', calib.get('focal', 0.0))
         camera.c_x = calib.get('c_x', 0.0)
         camera.c_y = calib.get('c_y', 0.0)
         camera.k1 = calib.get('k1', 0.0)
