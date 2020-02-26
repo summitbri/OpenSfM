@@ -656,77 +656,36 @@ def json_loads(text):
 
 def imread(filename, grayscale=False, unchanged=False, anydepth=False):
     """Load image as an array ignoring EXIF orientation."""
-    tiff_rgb_fallback = False
+    if grayscale:
+        raise IOError("Grayscale not implemented")
 
-    if context.OPENCV3:
-        if grayscale:
-            flags = cv2.IMREAD_GRAYSCALE
-        elif unchanged:
-            flags = cv2.IMREAD_UNCHANGED
-        else:
-            flags = cv2.IMREAD_COLOR
-
-            # Use fallback only with TIFFs
-            _, ext = os.path.splitext(filename.lower())
-            tiff_rgb_fallback = ext == ".tif"
-
-        try:
-            flags |= cv2.IMREAD_IGNORE_ORIENTATION
-        except AttributeError:
-            logger.warning(
-                "OpenCV version {} does not support loading images without "
-                "rotating them according to EXIF. Please upgrade OpenCV to "
-                "version 3.2 or newer.".format(cv2.__version__))
-        
-        if anydepth:
-            flags |= cv2.IMREAD_ANYDEPTH
-    else:
-        if grayscale:
-            flags = cv2.CV_LOAD_IMAGE_GRAYSCALE
-        elif unchanged:
-            flags = cv2.CV_LOAD_IMAGE_UNCHANGED
-        else:
-            flags = cv2.CV_LOAD_IMAGE_COLOR
-
-        if anydepth:
-            flags |= cv2.CV_LOAD_IMAGE_ANYDEPTH
+    with Image.open(filename) as f:
+        image = np.asarray(f)
     
-    image = cv2.imread(filename, flags)
+    if image is None: 
+        raise IOError("Unable to load image {}".format(filename))
 
-    # This might be a TIFF with unsupported bits per sample
-    # We fallback to using PIL
-    if image is None and tiff_rgb_fallback:
-        logger.info("Reading {} with fallback".format(filename))
-
-        with Image.open(filename) as f:
-            image = np.asarray(f)
-
+    if not anydepth or not unchanged:
+        # Convert to 8bit
         try:
             data_range = np.iinfo(image.dtype)
         except ValueError:
             data_range = np.finfo(image.dtype)
 
-        if image is not None:
-            value_range = float(data_range.max - data_range.min)
-            image = image.astype(np.float32)
-            image *= 255.0 / value_range
-            np.around(image, out=image)
-            image = image.astype(np.uint8)
+        value_range = float(data_range.max - data_range.min)
+        image = image.astype(np.float32)
+        image *= 255.0 / value_range
+        np.around(image, out=image)
+        image = image.astype(np.uint8)
 
-            if len(image.shape) == 2:
-                image = np.repeat(image[:, :, np.newaxis], 3, axis=2)
-            elif len(image.shape) == 3 and image.shape[2] > 3:
-                image = image[:,:,:3]
-            
-            # Match OpenCV convention
-            image[:, :, :3] = image[:, :, [0, 1, 2]]
-    # End TIFF fallback
+    if not unchanged:
+        # Convert to RGB
+        if len(image.shape) == 2:
+            image = np.repeat(image[:, :, np.newaxis], 3, axis=2)
 
-    if image is None: 
-        raise IOError("Unable to load image {}".format(filename))
+        if len(image.shape) == 3 and image.shape[2] > 3:
+            image = image[:,:,:3]
 
-    if len(image.shape) == 3:
-        image[:, :, :3] = image[:, :, [2, 1, 0]]  # Turn BGR to RGB (or BGRA to RGBA)
     return image
 
 
