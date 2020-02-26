@@ -109,7 +109,7 @@ def undistort_image_and_masks(arguments):
     image = data.load_image(shot.id, unchanged=True, anydepth=True)
     if image is not None:
         if imageFilter is not None:
-            image = imageFilter(image)
+            image = imageFilter(shot.id, image)
         max_size = data.config['undistorted_image_max_size']
         undistorted = undistort_image(shot, undistorted_shots, image,
                                       cv2.INTER_AREA, max_size)
