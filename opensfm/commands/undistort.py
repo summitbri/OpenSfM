@@ -15,10 +15,12 @@ from opensfm.context import parallel_map
 
 logger = logging.getLogger(__name__)
 
-
 class Command:
     name = 'undistort'
     help = "Save radially undistorted images"
+
+    def __init__(self, imageFilter = None):
+        self.imageFilter = imageFilter
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -92,20 +94,22 @@ class Command:
 
         arguments = []
         for shot in reconstruction.shots.values():
-            arguments.append((shot, undistorted_shots[shot.id], data, udata))
+            arguments.append((shot, undistorted_shots[shot.id], data, udata, self.imageFilter))
 
         processes = data.config['processes']
         parallel_map(undistort_image_and_masks, arguments, processes)
 
 
 def undistort_image_and_masks(arguments):
-    shot, undistorted_shots, data, udata = arguments
+    shot, undistorted_shots, data, udata, imageFilter = arguments
     log.setup()
     logger.debug('Undistorting image {}'.format(shot.id))
 
     # Undistort image
     image = data.load_image(shot.id, unchanged=True, anydepth=True)
     if image is not None:
+        if imageFilter is not None:
+            image = imageFilter(image)
         max_size = data.config['undistorted_image_max_size']
         undistorted = undistort_image(shot, undistorted_shots, image,
                                       cv2.INTER_AREA, max_size)
