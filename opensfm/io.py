@@ -660,7 +660,7 @@ def imread(filename, grayscale=False, unchanged=False, anydepth=False):
         raise IOError("Grayscale not implemented")
 
     with Image.open(filename) as f:
-        image = np.asarray(f)
+        image = np.array(f)
     
     if image is None: 
         raise IOError("Unable to load image {}".format(filename))
