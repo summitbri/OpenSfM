@@ -13,6 +13,11 @@ import sys
 import cv2
 import numpy as np
 import pyproj
+import rasterio
+from rasterio.plot import reshape_as_image
+import warnings
+warnings.filterwarnings("ignore", category=rasterio.errors.NotGeoreferencedWarning)
+
 from PIL import Image
 from six import iteritems
 
@@ -23,6 +28,7 @@ from opensfm import context
 
 
 logger = logging.getLogger(__name__)
+logging.getLogger("rasterio").setLevel(logging.WARNING)
 
 
 def camera_from_json(key, obj):
@@ -655,13 +661,62 @@ def json_loads(text):
 
 
 def imread(filename, grayscale=False, unchanged=False, anydepth=False):
+    _, ext = os.path.splitext(filename)
+    if ext.lower() == ".tiff" or ext.lower() == ".tif":
+        return imread_rasterio(filename, grayscale=grayscale, unchanged=unchanged, anydepth=anydepth)
+    else:
+        return imread_cv(filename, grayscale=grayscale, unchanged=unchanged, anydepth=anydepth)
+
+
+def imread_cv(filename, grayscale=False, unchanged=False, anydepth=False):
+    """Load image as an array ignoring EXIF orientation."""
+    if context.OPENCV3:
+        if grayscale:
+            flags = cv2.IMREAD_GRAYSCALE
+        elif unchanged:
+            flags = cv2.IMREAD_UNCHANGED
+        else:
+            flags = cv2.IMREAD_COLOR
+
+        try:
+            flags |= cv2.IMREAD_IGNORE_ORIENTATION
+        except AttributeError:
+            logger.warning(
+                "OpenCV version {} does not support loading images without "
+                "rotating them according to EXIF. Please upgrade OpenCV to "
+                "version 3.2 or newer.".format(cv2.__version__))
+        
+        if anydepth:
+            flags |= cv2.IMREAD_ANYDEPTH
+    else:
+        if grayscale:
+            flags = cv2.CV_LOAD_IMAGE_GRAYSCALE
+        elif unchanged:
+            flags = cv2.CV_LOAD_IMAGE_UNCHANGED
+        else:
+            flags = cv2.CV_LOAD_IMAGE_COLOR
+
+        if anydepth:
+            flags |= cv2.CV_LOAD_IMAGE_ANYDEPTH
+
+    image = cv2.imread(filename, flags)
+
+    if image is None:
+        raise IOError("Unable to load image {}".format(filename))
+
+    if len(image.shape) == 3:
+        image[:, :, :3] = image[:, :, [2, 1, 0]]  # Turn BGR to RGB (or BGRA to RGBA)
+    return image
+
+
+def imread_rasterio(filename, grayscale=False, unchanged=False, anydepth=False):
     """Load image as an array ignoring EXIF orientation."""
     if grayscale:
         raise IOError("Grayscale not implemented")
 
-    with Image.open(filename) as f:
-        image = np.array(f)
-    
+    with rasterio.open(filename, "r") as f:
+        image = reshape_as_image(f.read())
+
     if image is None: 
         raise IOError("Unable to load image {}".format(filename))
 
@@ -680,16 +735,46 @@ def imread(filename, grayscale=False, unchanged=False, anydepth=False):
 
     if not unchanged:
         # Convert to RGB
-        if len(image.shape) == 2:
-            image = np.repeat(image[:, :, np.newaxis], 3, axis=2)
-
-        if len(image.shape) == 3 and image.shape[2] > 3:
+        if image.shape[2] == 1:
+            image = np.repeat(image[:, :, :], 3, axis=2)
+        elif image.shape[2] > 3:
             image = image[:,:,:3]
 
     return image
 
 
 def imwrite(filename, image):
+    _, ext = os.path.splitext(filename)
+    if ext.lower() == ".tiff" or ext.lower() == ".tif":
+        return imwrite_rasterio(filename, image)
+    else:
+        return imwrite_cv(filename, image)
+
+
+def imwrite_rasterio(filename, image):
+    if len(image.shape) == 2:
+        image = np.repeat(image[:, :, np.newaxis], 1, axis=2)
+
+    profile =  {
+        'width': image.shape[1], 
+        'height': image.shape[0], 
+        'count': image.shape[2],
+        'blockxsize': 512,
+        'blockysize': 512,
+        'compress': 'lzw',
+        'predictor': 3 if image.dtype == np.float32 else 2,
+        'driver': 'GTiff',
+        'dtype': image.dtype,
+        'interleave': 'pixel',
+        'tiled': False
+    }
+
+    with rasterio.open(filename, "w", **profile) as f:
+        for b in range(0, image.shape[2]):
+            f.write(image[:,:,b], b + 1)
+
+
+def imwrite_cv(filename, image):
     """Write an image to a file"""
     if len(image.shape) == 3:
         image[:, :, :3] = image[:, :, [2, 1, 0]]  # Turn RGB to BGR (or RGBA to BGRA)
