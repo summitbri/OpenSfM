@@ -4,6 +4,7 @@ import datetime
 import exifread
 import logging
 import xmltodict as x2d
+from codecs import encode, decode
 
 from six import string_types
 
