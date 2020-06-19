@@ -99,6 +99,23 @@ def extract_exif_from_file(fileobj):
     return d
 
 
+def unescape_string(s):
+    return decode(encode(s, 'latin-1', 'backslashreplace'), 'unicode-escape')
+
+
+def parse_xmp_string(xmp_str):
+    for i in range(3):
+        try:
+            return x2d.parse(xmp_str)
+        except:
+            if i == 0:
+                xmp_str = unescape_string(xmp_str)
+            elif i == 1:
+                from bs4 import BeautifulSoup
+                xmp_str = str(BeautifulSoup(xmp_str, 'xml'))
+    return None
+
+
 def get_xmp(fileobj):
     '''Extracts XMP metadata from and image fileobj
     '''
