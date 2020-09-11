@@ -8,6 +8,7 @@ import gzip
 
 import numpy as np
 import six
+import hashlib
 
 from opensfm import io
 from opensfm import config
@@ -604,7 +605,7 @@ class UndistortedDataSet(object):
         """Path of undistorted version of an image."""
         image_format = self.config['undistorted_image_format']
         if ' ' in image:
-            image = image.replace(' ', '') + hex(hash(image))
+            image = image.replace(' ', '') + hashlib.md5(image.encode('utf8')).hexdigest()
         filename = image + '.' + image_format
         return os.path.join(self._undistorted_image_path(), filename)
 
