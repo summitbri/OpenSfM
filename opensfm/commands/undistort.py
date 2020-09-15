@@ -120,7 +120,7 @@ def undistort_image_and_masks(arguments):
     mask = data.load_mask(shot.id)
     if mask is not None:
         undistorted = undistort_image(shot, undistorted_shots, mask,
-                                      cv2.INTER_NEAREST, 1e9)
+                                      cv2.INTER_NEAREST, max_size)
         for k, v in undistorted.items():
             udata.save_undistorted_mask(k, v)
 
