@@ -8,7 +8,7 @@ import psutil
 
 from collections import namedtuple
 from networkx.algorithms import bipartite
-from functools import lru_cache
+from opensfm.large.lru_cache import lru_cache
 
 from opensfm import align
 from opensfm import context

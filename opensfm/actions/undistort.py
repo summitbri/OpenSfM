@@ -36,10 +36,10 @@ def run_dataset(data, reconstruction, reconstruction_index, tracks, output, imag
 
     if reconstructions:
         r = reconstructions[reconstruction_index]
-        undistort_reconstruction(tracks_manager, r, data, udata)
+        undistort_reconstruction(tracks_manager, r, data, udata, imageFilter)
 
 
-def undistort_reconstruction(tracks_manager, reconstruction, data, udata):
+def undistort_reconstruction(tracks_manager, reconstruction, data, udata, imageFilter = None):
     urec = types.Reconstruction()
     urec.points = reconstruction.points
     utracks_manager = pysfm.TracksManager()
@@ -73,7 +73,7 @@ def undistort_reconstruction(tracks_manager, reconstruction, data, udata):
 
     arguments = []
     for shot in reconstruction.shots.values():
-        arguments.append((shot, undistorted_shots[shot.id], data, udata, self.imageFilter))
+        arguments.append((shot, undistorted_shots[shot.id], data, udata, imageFilter))
 
     processes = data.config['processes']
     parallel_map(undistort_image_and_masks, arguments, processes)
