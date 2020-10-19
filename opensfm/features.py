@@ -7,7 +7,7 @@ import sys
 import cv2
 
 from opensfm import context
-from opensfm import csfm
+from opensfm import pyfeatures
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +93,7 @@ def extract_features_sift(image, config):
                 edgeThreshold=sift_edge_threshold,
                 contrastThreshold=sift_peak_threshold)
         except AttributeError as ae:
-            if "no attribute 'xfeatures2d'" in ae.message:
+            if "no attribute 'xfeatures2d'" in str(ae):
                 logger.error('OpenCV Contrib modules are required to extract SIFT features')
             raise
         descriptor = detector
@@ -131,7 +131,7 @@ def extract_features_surf(image, config):
         try:
             detector = cv2.xfeatures2d.SURF_create()
         except AttributeError as ae:
-            if "no attribute 'xfeatures2d'" in ae.message:
+            if "no attribute 'xfeatures2d'" in str(ae):
                 logger.error('OpenCV Contrib modules are required to extract SURF features')
             raise
         descriptor = detector
@@ -171,7 +171,7 @@ def extract_features_surf(image, config):
 
 
 def akaze_descriptor_type(name):
-    d = csfm.AkazeDescriptorType.__dict__
+    d = pyfeatures.AkazeDescriptorType.__dict__
     if name in d:
         return d[name]
     else:
@@ -180,7 +180,7 @@ def akaze_descriptor_type(name):
 
 
 def extract_features_akaze(image, config):
-    options = csfm.AKAZEOptions()
+    options = pyfeatures.AKAZEOptions()
     options.omax = config['akaze_omax']
     akaze_descriptor_name = config['akaze_descriptor']
     options.descriptor = akaze_descriptor_type(akaze_descriptor_name)
@@ -194,7 +194,7 @@ def extract_features_akaze(image, config):
 
     logger.debug('Computing AKAZE with threshold {0}'.format(options.dthreshold))
     t = time.time()
-    points, desc = csfm.akaze(image, options)
+    points, desc = pyfeatures.akaze(image, options)
     logger.debug('Found {0} points in {1}s'.format(len(points), time.time() - t))
 
     if config['feature_root']:
@@ -208,7 +208,7 @@ def extract_features_akaze(image, config):
 
 def extract_features_hahog(image, config):
     t = time.time()
-    points, desc = csfm.hahog(image.astype(np.float32) / 255,  # VlFeat expects pixel values between 0, 1
+    points, desc = pyfeatures.hahog(image.astype(np.float32) / 255,  # VlFeat expects pixel values between 0, 1
                               peak_threshold=config['hahog_peak_threshold'],
                               edge_threshold=config['hahog_edge_threshold'],
                               target_num_features=config['feature_min_frames'],
@@ -247,8 +247,8 @@ def extract_features_orb(image, config):
     return points, desc
 
 
-def extract_features(color_image, config):
-    """Detect features in an image.
+def extract_features(image, config):
+    """Detect features in a color or gray-scale image.
 
     The type of feature detected is determined by the ``feature_type``
     config option.
@@ -256,34 +256,50 @@ def extract_features(color_image, config):
     The coordinates of the detected points are returned in normalized
     image coordinates.
 
+    Parameters:
+        - image: a color image with shape (h, w, 3) or
+                 gray-scale image with (h, w) or (h, w, 1)
+        - config: the configuration structure
+
     Returns:
         tuple:
         - points: ``x``, ``y``, ``size`` and ``angle`` for each feature
         - descriptors: the descriptor of each feature
         - colors: the color of the center of each feature
     """
-    assert len(color_image.shape) == 3
-    color_image = resized_image(color_image, config)
-    image = cv2.cvtColor(color_image, cv2.COLOR_RGB2GRAY)
+    assert len(image.shape) == 3 or len(image.shape) == 2
+
+    if len(image.shape) == 2: # convert (h, w) to (h, w, 1)
+        image = np.expand_dims(image, axis=2)
+
+    image = resized_image(image, config)
+
+    # convert color to gray-scale if necessary
+    if image.shape[2] == 3:
+        image_gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+    else:
+        image_gray = image
 
     feature_type = config['feature_type'].upper()
     if feature_type == 'SIFT':
-        points, desc = extract_features_sift(image, config)
+        points, desc = extract_features_sift(image_gray, config)
     elif feature_type == 'SURF':
-        points, desc = extract_features_surf(image, config)
+        points, desc = extract_features_surf(image_gray, config)
     elif feature_type == 'AKAZE':
-        points, desc = extract_features_akaze(image, config)
+        points, desc = extract_features_akaze(image_gray, config)
     elif feature_type == 'HAHOG':
-        points, desc = extract_features_hahog(image, config)
+        points, desc = extract_features_hahog(image_gray, config)
     elif feature_type == 'ORB':
-        points, desc = extract_features_orb(image, config)
+        points, desc = extract_features_orb(image_gray, config)
     else:
         raise ValueError('Unknown feature type '
                          '(must be SURF, SIFT, AKAZE, HAHOG or ORB)')
 
     xs = points[:, 0].round().astype(int)
     ys = points[:, 1].round().astype(int)
-    colors = color_image[ys, xs]
+    colors = image[ys, xs]
+    if image.shape[2] == 1:
+        colors = np.repeat(colors, 3).reshape((-1,3))
 
     return normalize_features(points, desc, colors,
                               image.shape[1], image.shape[0])

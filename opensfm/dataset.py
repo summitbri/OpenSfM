@@ -1,22 +1,19 @@
-# -*- coding: utf-8 -*-
-
 import os
 import json
 import logging
 import pickle
 import gzip
 
+import cv2
 import numpy as np
-import six
 import hashlib
 
 from opensfm import io
 from opensfm import config
 from opensfm import geo
-from opensfm import tracking
 from opensfm import features
 from opensfm import upright
-
+from opensfm import pysfm
 
 logger = logging.getLogger(__name__)
 
@@ -37,15 +34,15 @@ class DataSet(object):
     def __init__(self, data_path):
         """Init dataset associated to a folder."""
         self.data_path = data_path
-        self._load_config()
-        self._load_image_list()
-        self._load_mask_list()
+        self.load_config()
+        self.load_image_list()
+        self.load_mask_list()
 
-    def _load_config(self):
+    def load_config(self):
         config_file = os.path.join(self.data_path, 'config.yaml')
         self.config = config.load_config(config_file)
 
-    def _load_image_list(self):
+    def load_image_list(self):
         """Load image list from image_list.txt or list images/ folder."""
         image_list_file = os.path.join(self.data_path, 'image_list.txt')
         if os.path.isfile(image_list_file):
@@ -79,7 +76,7 @@ class DataSet(object):
         """Height and width of the image."""
         return io.image_size(self._image_file(image))
 
-    def _load_mask_list(self):
+    def load_mask_list(self):
         """Load mask list from mask_list.txt or list masks/ folder."""
         mask_list_file = os.path.join(self.data_path, 'mask_list.txt')
         if os.path.isfile(mask_list_file):
@@ -213,7 +210,16 @@ class DataSet(object):
             if smask is None:
                 return mask
             else:
+                mask, smask = self._resize_masks_to_match(mask, smask)
                 return mask & smask
+
+    def _resize_masks_to_match(self, im1, im2):
+        h, w = max(im1.shape, im2.shape)
+        if im1.shape != (h, w):
+            im1 = cv2.resize(im1, (w, h), interpolation=cv2.INTER_NEAREST)
+        if im2.shape != (h, w):
+            im2 = cv2.resize(im2, (w, h), interpolation=cv2.INTER_NEAREST)
+        return im1, im2
 
     def _is_image_file(self, filename):
         extensions = {'jpg', 'jpeg', 'png', 'tif', 'tiff', 'pgm', 'pnm', 'gif'}
@@ -225,7 +231,6 @@ class DataSet(object):
         self.image_files = {}
         if os.path.exists(path):
             for name in os.listdir(path):
-                name = six.text_type(name)
                 if self._is_image_file(name):
                     self.image_list.append(name)
                     self.image_files[name] = os.path.join(path, name)
@@ -365,21 +370,19 @@ class DataSet(object):
                     return im2_matches[im1][:, [1, 0]]
         return []
 
-    def _tracks_graph_file(self, filename=None):
+    def _tracks_manager_file(self, filename=None):
         """Return path of tracks file"""
         return os.path.join(self.data_path, filename or 'tracks.csv')
 
-    def load_tracks_graph(self, filename=None):
-        """Return graph (networkx data structure) of tracks"""
-        with io.open_rt(self._tracks_graph_file(filename)) as fin:
-            return tracking.load_tracks_graph(fin)
+    def load_tracks_manager(self, filename=None):
+        """Return the tracks manager"""
+        return pysfm.TracksManager.instanciate_from_file(self._tracks_manager_file(filename))
 
     def tracks_exists(self, filename=None):
-        return os.path.isfile(self._tracks_graph_file(filename))
+        return os.path.isfile(self._tracks_manager_file(filename))
 
-    def save_tracks_graph(self, graph, filename=None):
-        with io.open_wt(self._tracks_graph_file(filename)) as fout:
-            tracking.save_tracks_graph(fout, graph)
+    def save_tracks_manager(self, tracks_manager, filename=None):
+        tracks_manager.write_to_file(self._tracks_manager_file(filename))
 
     def _reconstruction_file(self, filename):
         """Return path of reconstruction file"""
@@ -417,7 +420,7 @@ class DataSet(object):
                     walt += w
 
         if not wlat and not wlon:
-            for gcp in self._load_ground_control_points(None):
+            for gcp in self.load_ground_control_points_impl(None):
                 lat += gcp.lla[0]
                 lon += gcp.lla[1]
                 alt += gcp.lla[2]
@@ -549,9 +552,9 @@ class DataSet(object):
         """
 
         reference = self.load_reference()
-        return self._load_ground_control_points(reference)
+        return self.load_ground_control_points_impl(reference)
 
-    def _load_ground_control_points(self, reference):
+    def load_ground_control_points_impl(self, reference):
         """Load ground control points.
 
         It might use reference to convert the coordinates
@@ -763,11 +766,11 @@ class UndistortedDataSet(object):
         else:
             return o['points'], o['normals'], o['colors'], o['labels'], o['detections']
 
-    def load_undistorted_tracks_graph(self):
-        return self.base.load_tracks_graph(os.path.join(self.subfolder, 'tracks.csv'))
+    def load_undistorted_tracks_manager(self):
+        return self.base.load_tracks_manager(os.path.join(self.subfolder, 'tracks.csv'))
 
-    def save_undistorted_tracks_graph(self, graph):
-        return self.base.save_tracks_graph(graph, os.path.join(self.subfolder, 'tracks.csv'))
+    def save_undistorted_tracks_manager(self, tracks_manager):
+        return self.base.save_tracks_manager(tracks_manager, os.path.join(self.subfolder, 'tracks.csv'))
 
     def load_undistorted_reconstruction(self):
         return self.base.load_reconstruction(
