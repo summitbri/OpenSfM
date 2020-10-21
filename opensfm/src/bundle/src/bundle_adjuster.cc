@@ -568,6 +568,10 @@ void BundleAdjuster::Run() {
     // Lock parameters based on bitmask of parameters : only constant for now
     if (i.second.GetParametersToOptimize().empty()) {
       problem.SetParameterBlockConstant(data.data());
+    }else if (i.second.keep_ar_constant){
+        // Keep aspect ratio constant (BROWN only)
+        ceres::SubsetParameterization *subset_parameterization = new ceres::SubsetParameterization(data.size(), { 6 });
+        problem.SetParameterization(data.data(), subset_parameterization);
     }
 
     // Add a barrier for constraining transition of dual to stay in [0, 1]

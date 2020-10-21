@@ -160,7 +160,8 @@ struct BACamera : public BAData<Camera> {
   BACamera(const Camera &value, const Camera &prior, const Camera &sigma)
       : BAData<Camera>(value, prior, sigma),
         all_parameters_(value.GetParametersTypes()),
-        parameters_to_optimize_(value.GetParametersTypes()) {}
+        parameters_to_optimize_(value.GetParametersTypes()),
+        keep_ar_constant(value.GetProjectionType() == ProjectionType::BROWN){}
 
   std::vector<Camera::Parameters> GetParametersToOptimize() {
     return parameters_to_optimize_;
@@ -169,6 +170,8 @@ struct BACamera : public BAData<Camera> {
   void SetParametersToOptimize(const std::vector<Camera::Parameters> &p) {
     parameters_to_optimize_ = p;
   }
+
+  bool keep_ar_constant;
 
  private:
   void ValueToData(const Camera &value, VecXd &data) const final {
