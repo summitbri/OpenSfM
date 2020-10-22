@@ -226,6 +226,9 @@ py::tuple BAHelpers::BundleLocal(
   if (config["bundle_use_gcp"].cast<bool>() && !gcp.empty()) {
     AddGCPToBundle(ba, gcp, map.GetAllShots());
   }
+  if (config["bundle_common_position_constraints"].cast<bool>()){
+      AddCommonPositionConstraints(ba, map.GetAllShots());
+  }
 
   ba.SetPointProjectionLossFunction(
       config["loss_function"].cast<std::string>(),
@@ -396,6 +399,7 @@ py::dict BAHelpers::Bundle(
     constexpr auto fix_shot = false;
     ba.AddShot(shot.id_, shot.shot_camera_->id, pose.RotationWorldToCameraMin(),
                pose.TranslationWorldToCamera(), fix_shot);
+
     if (config["bundle_use_gps"].cast<bool>()) {
       const Vec3d g = shot.shot_measurements_.gps_position_.Value();
       ba.AddPositionPrior(shot.id_, g[0], g[1], g[2],
@@ -428,6 +432,9 @@ py::dict BAHelpers::Bundle(
   }
   if (config["bundle_use_gcp"].cast<bool>() && !gcp.empty()) {
     AddGCPToBundle(ba, gcp, map.GetAllShots());
+  }
+  if (config["bundle_common_position_constraints"].cast<bool>()){
+      AddCommonPositionConstraints(ba, map.GetAllShots());
   }
 
   ba.SetPointProjectionLossFunction(
@@ -525,6 +532,22 @@ void BAHelpers::AlignmentConstraints(
       X.row(idx) = shot.GetPose().GetOrigin();
     }
   }
+}
+
+void BAHelpers::AddCommonPositionConstraints(BundleAdjuster &ba, const std::unordered_map<map::ShotId, map::Shot> &shots){
+    for (auto &sp1 : shots){
+        map::Shot &s1 = const_cast<map::Shot &>(sp1.second);
+        for (auto &sp2 : shots){
+            map::Shot &s2 = const_cast<map::Shot &>(sp2.second);
+            if (s1.id_ == s2.id_) continue;
+
+            if (s1.GetShotMeasurements().capture_time_.Value() == s2.GetShotMeasurements().capture_time_.Value()){
+                ba.AddCommonPosition(s1.id_, s2.id_, 0.05, 0.2);
+                const auto &t = s2.GetPose().GetOrigin();
+                ba.AddTranslationPrior(s1.id_, t[0], t[1], t[2], 5);
+            }
+        }
+    }
 }
 
 std::string BAHelpers::DetectAlignmentConstraints(

@@ -56,5 +56,8 @@ class BAHelpers {
     const AlignedVector<map::GroundControlPoint>& gcp,
     MatX3d& Xp, MatX3d& X);
 
+  static void AddCommonPositionConstraints(
+          BundleAdjuster& ba, const std::unordered_map<map::ShotId, map::Shot>& shots);
+
 
 };

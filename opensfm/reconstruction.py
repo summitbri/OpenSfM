@@ -113,6 +113,19 @@ def bundle_single_view(reconstruction, shot_id, camera_priors, config):
 
     r = shot.pose.rotation
     t = shot.pose.translation
+
+    if config['bundle_common_position_constraints']:
+        shots = reconstruction.shots.values()
+        for s in shots:
+            if s.id == shot.id:
+                continue
+            if s.metadata.capture_time.value == shot.metadata.capture_time.value:
+                ba.add_translation_prior(shot.id, s.pose.translation[0],
+                                               s.pose.translation[1],
+                                               s.pose.translation[2],
+                                               5)
+                break
+                
     ba.add_shot(shot_id, camera.id, r, t, False)
 
     for track in shot.get_valid_landmarks():
