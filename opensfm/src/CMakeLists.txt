@@ -32,6 +32,10 @@ if (OPENMP_FOUND)
   set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
 endif()
 
+if (ADDITIONAL_INCLUDE_DIRS)
+	include_directories(${ADDITIONAL_INCLUDE_DIRS})
+endif()
+
 find_package(LAPACK)
 find_package(SuiteSparse)
 find_package(Eigen REQUIRED)
