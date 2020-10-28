@@ -406,13 +406,7 @@ class EXIF:
                         logger.debug(
                             'Naively assuming UTC on "{0:s}" in image file '
                             '"{1:s}"'.format(datetime_tag, self.fileobj.name))
-                else:
-                    logger.debug(
-                        'No GPS time stamp and no time zone offset in image '
-                        'file "{0:s}"'.format(self.fileobj.name))
-                    logger.debug(
-                        'Naively assuming UTC on "{0:s}" in image file "{1:s}"'
-                        .format(datetime_tag, self.fileobj.name))
+
                 return (d - datetime.datetime(1970, 1, 1)).total_seconds()
         logger.info(
             'Image file "{0:s}" has no valid time stamp'.format(
