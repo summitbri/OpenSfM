@@ -580,17 +580,17 @@ def camera_from_exif_metadata(metadata, data,
     elif calib_pt == 'brown':
         camera = pygeometry.Camera.create_brown(
             calib.get('focal_x', calib.get('focal')), calib.get('focal_y', calib.get('focal')) / calib.get('focal_x', calib.get('focal')),
-            [calib['c_x'], calib['c_y']],
-            [calib['k1'], calib['k2'], calib['k3'],
-             calib['p1'], calib['p2']])
+            [calib.get('c_x', 0.0), calib.get('c_y', 0.0)],
+            [calib.get('k1', 0.0), calib.get('k2', 0.0), calib.get('k3', 0.0),
+             calib.get('p1', 0.0), calib.get('p2', 0.0)])
     elif calib_pt == 'fisheye':
         camera = pygeometry.Camera.create_fisheye(
             calib['focal'], calib['k1'], calib['k2'])
     elif calib_pt == 'fisheye_opencv':
         camera = pygeometry.Camera.create_fisheye_opencv(
             calib['focal_x'], calib['focal_y'] / calib['focal_x'],
-            [calib['c_x'], calib['c_y']],
-            [calib['k1'], calib['k2'], calib['k3'], calib['k4']])
+            [calib.get('c_x', 0.0), calib.get('c_y', 0.0)],
+            [calib.get('k1', 0.0), calib.get('k2', 0.0), calib.get('k3', 0.0), calib.get('k4', 0.0)])
     elif calib_pt == 'dual':
         camera = pygeometry.Camera.create_dual(
             calib['transition'], calib['focal'], calib['k1'], calib['k2'])
