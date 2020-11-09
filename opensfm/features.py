@@ -93,11 +93,7 @@ def extract_features_sift(image, config, features_count):
             edgeThreshold=sift_edge_threshold,
             contrastThreshold=sift_peak_threshold)
         descriptor = detector
-<<<<<<< HEAD
-    elif context.OPENCV3:
-=======
     elif context.OPENCV3 or context.OPENCV4:
->>>>>>> piero/gpsbug
         try:
             # OpenCV versions concerned /** 3.2.x, 3.3.x, 3.4.0, 3.4.1, 3.4.2, 3.4.10, 4.3.0, 4.4.0 **/
             detector = cv2.xfeatures2d.SIFT_create(

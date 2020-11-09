@@ -227,7 +227,7 @@ py::tuple BAHelpers::BundleLocal(
     AddGCPToBundle(ba, gcp, map.GetShots());
   }
   if (config["bundle_common_position_constraints"].cast<bool>()){
-      AddCommonPositionConstraints(ba, map.GetAllShots());
+      AddCommonPositionConstraints(ba, map.GetShots());
   }
 
   ba.SetPointProjectionLossFunction(
@@ -434,7 +434,7 @@ py::dict BAHelpers::Bundle(
     AddGCPToBundle(ba, gcp, map.GetShots());
   }
   if (config["bundle_common_position_constraints"].cast<bool>()){
-      AddCommonPositionConstraints(ba, map.GetAllShots());
+      AddCommonPositionConstraints(ba, map.GetShots());
   }
 
   ba.SetPointProjectionLossFunction(
