@@ -22,7 +22,7 @@ from opensfm import pymap
 
 logger = logging.getLogger(__name__)
 logging.getLogger("rasterio").setLevel(logging.WARNING)
-
+logging.getLogger("PIL").setLevel(logging.WARNING)
 
 def camera_from_json(key, obj):
     """
