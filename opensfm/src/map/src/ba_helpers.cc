@@ -543,8 +543,6 @@ void BAHelpers::AddCommonPositionConstraints(BundleAdjuster &ba, const std::unor
 
             if (s1.GetShotMeasurements().capture_time_.Value() == s2.GetShotMeasurements().capture_time_.Value()){
                 ba.AddCommonPosition(s1.id_, s2.id_, 0.05, 0.2);
-                const auto &t = s2.GetPose().GetOrigin();
-                ba.AddTranslationPrior(s1.id_, t[0], t[1], t[2], 5);
             }
         }
     }
