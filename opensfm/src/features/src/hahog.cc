@@ -100,7 +100,8 @@ py::object hahog(foundation::pyarray_f image, float peak_threshold,
     // std::cout << "t_orient " << float(t_orient - t_affine)/CLOCKS_PER_SEC <<
     // "\n"; std::cout << "description " << float(t_description -
     // t_orient)/CLOCKS_PER_SEC << "\n";
-
+    py::gil_scoped_acquire acquire;
+    
     py::list retn;
     retn.append(foundation::py_array_from_data(&points[0], numFeatures, 4));
     retn.append(
