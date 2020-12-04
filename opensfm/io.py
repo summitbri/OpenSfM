@@ -760,6 +760,8 @@ def imread_rasterio(filename, grayscale=False, unchanged=False, anydepth=False):
         image = image.astype(np.float32)
         image *= 255.0 / value_range
         np.around(image, out=image)
+        image[image > 255] = 255
+        image[image < 0] = 0
         image = image.astype(np.uint8)
 
     if not unchanged:

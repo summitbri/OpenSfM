@@ -125,10 +125,7 @@ def bundle_single_view(reconstruction, shot_id, camera_priors, config):
             if s.id == shot.id:
                 continue
             if s.metadata.capture_time.value == shot.metadata.capture_time.value:
-                ba.add_translation_prior(shot.id, s.pose.translation[0],
-                                               s.pose.translation[1],
-                                               s.pose.translation[2],
-                                               5)
+                ba.add_common_position(shot.id, s.id, 0.05, 0.2)
                 break
                 
     ba.add_shot(shot_id, camera.id, r, t, False)
