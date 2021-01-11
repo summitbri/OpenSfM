@@ -5,6 +5,7 @@ import yaml
 default_config_yaml = """
 # Metadata
 use_exif_size: yes
+unknown_camera_models_are_different: no   # Treat images from unknown camera models as comming from different cameras
 default_focal_prior: 0.85
 camera_projection_type: AUTO        # The projection type of the camera : attempt to detect it from metadata (AUTO), or set it manually (PERSPECTIVE, BROWN, FISHEYE, SPHERICAL) 
 

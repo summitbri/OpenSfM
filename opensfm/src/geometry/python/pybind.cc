@@ -17,6 +17,7 @@ PYBIND11_MODULE(pygeometry, m) {
       .value("BROWN", ProjectionType::BROWN)
       .value("FISHEYE", ProjectionType::FISHEYE)
       .value("FISHEYE_OPENCV", ProjectionType::FISHEYE_OPENCV)
+      .value("FISHEYE62", ProjectionType::FISHEYE62)
       .value("DUAL", ProjectionType::DUAL)
       .value("SPHERICAL", ProjectionType::SPHERICAL)
       .export_values();
@@ -28,9 +29,14 @@ PYBIND11_MODULE(pygeometry, m) {
       .value("k2", Camera::Parameters::K2)
       .value("k3", Camera::Parameters::K3)
       .value("k4", Camera::Parameters::K4)
+      .value("k5", Camera::Parameters::K5)
+      .value("k6", Camera::Parameters::K6)
       .value("p1", Camera::Parameters::P1)
       .value("p2", Camera::Parameters::P2)
+      .value("cx", Camera::Parameters::Cx)
+      .value("cy", Camera::Parameters::Cy)
       .value("transition", Camera::Parameters::Transition)
+      .value("none", Camera::Parameters::None)
       .export_values();
 
   py::class_<Camera>(m, "Camera")
@@ -38,6 +44,7 @@ PYBIND11_MODULE(pygeometry, m) {
       .def_static("create_brown", &Camera::CreateBrownCamera)
       .def_static("create_fisheye", &Camera::CreateFisheyeCamera)
       .def_static("create_fisheye_opencv", &Camera::CreateFisheyeOpencvCamera)
+      .def_static("create_fisheye62", &Camera::CreateFisheye62Camera)
       .def_static("create_dual", &Camera::CreateDualCamera)
       .def_static("create_spherical", &Camera::CreateSphericalCamera)
       .def("pixel_to_normalized_coordinates_common",
@@ -135,7 +142,9 @@ PYBIND11_MODULE(pygeometry, m) {
             p.SetParameterValue(Camera::Parameters::Cx, principal_point[0]);
             p.SetParameterValue(Camera::Parameters::Cy, principal_point[1]);
           })
-      .def_property_readonly("projection_type", &Camera::GetProjectionString)
+      .def_property_readonly(
+          "projection_type",
+          (std::string(Camera::*)() const) & Camera::GetProjectionString)
       .def_static("is_panorama",
                   [](const std::string& s) {
                     return !s.compare("spherical") ||
@@ -160,6 +169,16 @@ PYBIND11_MODULE(pygeometry, m) {
           "k4",
           [](const Camera& c) {
             return c.GetParameterValue(Camera::Parameters::K4);
+          })
+      .def_property_readonly(
+          "k5",
+          [](const Camera& c) {
+            return c.GetParameterValue(Camera::Parameters::K5);
+          })
+      .def_property_readonly(
+          "k6",
+          [](const Camera& c) {
+            return c.GetParameterValue(Camera::Parameters::K6);
           })
       .def_property_readonly(
           "p1",
@@ -226,6 +245,25 @@ PYBIND11_MODULE(pygeometry, m) {
                     values.at(Camera::Parameters::K3),
                     values.at(Camera::Parameters::K4);
                 camera = Camera::CreateFisheyeOpencvCamera(
+                    values.at(Camera::Parameters::Focal),
+                    values.at(Camera::Parameters::AspectRatio), principal_point,
+                    distortion);
+                break;
+              }
+              case ProjectionType::FISHEYE62: {
+                Vec2d principal_point = Vec2d::Zero();
+                principal_point << values.at(Camera::Parameters::Cx),
+                    values.at(Camera::Parameters::Cy);
+                VecXd distortion(8);
+                distortion << values.at(Camera::Parameters::K1),
+                    values.at(Camera::Parameters::K2),
+                    values.at(Camera::Parameters::K3),
+                    values.at(Camera::Parameters::K4),
+                    values.at(Camera::Parameters::K5),
+                    values.at(Camera::Parameters::K6),
+                    values.at(Camera::Parameters::P1),
+                    values.at(Camera::Parameters::P2);
+                camera = Camera::CreateFisheye62Camera(
                     values.at(Camera::Parameters::Focal),
                     values.at(Camera::Parameters::AspectRatio), principal_point,
                     distortion);
