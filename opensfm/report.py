@@ -11,12 +11,12 @@ logger = logging.getLogger(__name__)
 
 
 class Report:
-    def __init__(self, data):
+    def __init__(self, data, stats = None):
         self.output_path = os.path.join(data.data_path, "stats")
         self.dataset_name = os.path.basename(data.data_path)
 
-        self.mapi_light_light_green = [210, 245, 226]
-        self.mapi_light_green = [5, 203, 99]
+        self.mapi_light_light_green = [255, 255, 255]
+        self.mapi_light_green = [0, 0, 0]
         self.mapi_light_grey = [218, 222, 228]
         self.mapi_dark_grey = [99, 115, 129]
 
@@ -33,7 +33,10 @@ class Report:
         self.cell_height = 7
         self.total_size = 190
 
-        self.stats = self._read_stats_file("stats.json")
+        if stats is not None:
+            self.stats = stats
+        else:
+            self.stats = self._read_stats_file("stats.json")
 
     def save_report(self, filename):
         self.pdf.output(os.path.join(self.output_path, filename), "F")
@@ -118,16 +121,17 @@ class Report:
         # title
         self.pdf.set_font("Helvetica", "B", self.title_size)
         self.pdf.set_text_color(*self.mapi_light_green)
-        self.pdf.cell(0, self.margin, "OpenSfM Quality Report", align="C")
+        self.pdf.cell(0, self.margin, "ODM Quality Report", align="C")
         self.pdf.set_xy(self.margin, self.title_size)
 
         # version number
-        out, _ = subprocess.Popen(
-            ["git", "describe", "--tags"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        ).communicate()
-        version = out.strip().decode()
+        version_file = os.path.join(os.path.dirname(__file__), "../../../../VERSION")
+        version = ""
+        try:
+            with open(version_file, 'r') as f:
+               version = f.read().strip()
+        except Exception as e:
+            logger.warning("Invalid version file" + version_file + ": " + str(e))
 
         # indicate we don't know the version
         version = "unknown" if version == "" else version
@@ -135,7 +139,7 @@ class Report:
         self.pdf.set_font("Helvetica", "", self.small_text)
         self.pdf.set_text_color(*self.mapi_dark_grey)
         self.pdf.cell(
-            0, self.margin, f"Processed with OpenSfM version {version}", align="R"
+            0, self.margin, f"Processed with ODM version {version}", align="R"
         )
         self.pdf.set_xy(self.margin, self.pdf.get_y() + 2 * self.margin)
 
@@ -143,7 +147,7 @@ class Report:
         self._make_section("Dataset Summary")
 
         rows = [
-            ["Dataset", self.dataset_name],
+            #["Dataset", self.dataset_name],
             ["Date", self.stats["processing_statistics"]["date"]],
             [
                 "Area Covered",
@@ -151,7 +155,8 @@ class Report:
             ],
             [
                 "Processing Time",
-                f"{self.stats['processing_statistics']['steps_times']['Total Time']:.2f} seconds",
+                #f"{self.stats['processing_statistics']['steps_times']['Total Time']:.2f} seconds",
+                self.stats['odm_processing_statistics']['total_time_human'],
             ],
         ]
         self._make_table(None, rows, True)
@@ -187,7 +192,7 @@ class Report:
                 f"{rec_shots} over {init_shots} shots ({rec_shots/init_shots*100:.1f}%)",
             ],
             [
-                "Reconstructed Points",
+                "Reconstructed Points (Sparse)",
                 f"{rec_points} over {init_points} points ({rec_points/init_points*100:.1f}%)",
             ],
             [
@@ -196,14 +201,28 @@ class Report:
             ],
             [
                 "Detected Features",
-                f"{self.stats['features_statistics']['detected_features']['median']} features",
+                f"{self.stats['features_statistics']['detected_features']['median']:,} features",
             ],
             [
                 "Reconstructed Features",
-                f"{self.stats['features_statistics']['reconstructed_features']['median']} features",
+                f"{self.stats['features_statistics']['reconstructed_features']['median']:,} features",
             ],
             ["Geographic Reference", " and ".join(geo_string)],
         ]
+
+        # Dense (if available)
+        if self.stats.get('point_cloud_statistics'):
+            rows.insert(2, [
+                "Reconstructed Points (Dense)",
+                f"{self.stats['point_cloud_statistics']['summary']['num_points']:,} points"
+            ])
+
+        # GSD (if available)
+        if self.stats['odm_processing_statistics'].get('average_gsd'):
+            rows.insert(3, [
+                "Average Ground Sampling Distance (GSD)",
+                f"{self.stats['odm_processing_statistics']['average_gsd']:.1f} cm"
+            ])
 
         row_gps_gcp = [" / ".join(geo_string) + " errors"]
         geo_errors = []
@@ -370,7 +389,7 @@ class Report:
     def add_page_break(self):
         self.pdf.add_page("P")
 
-    def generate_report(self):
+    def generate_report(self, odm_stats = None):
         self.make_title()
         self.make_dataset_summary()
         self.make_processing_summary()
@@ -383,4 +402,4 @@ class Report:
 
         self.make_camera_models_details()
         self.make_gps_details()
-        self.make_processing_time_details()
+        # self.make_processing_time_details()
