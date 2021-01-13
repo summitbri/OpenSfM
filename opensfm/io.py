@@ -1079,7 +1079,7 @@ def import_bundler(
 # PLY
 
 
-def ply_header(count_vertices, with_normals=False):
+def ply_header(count_vertices, with_normals=False, point_num_views=False):
     if with_normals:
         header = [
             "ply",
@@ -1094,7 +1094,6 @@ def ply_header(count_vertices, with_normals=False):
             "property uchar diffuse_red",
             "property uchar diffuse_green",
             "property uchar diffuse_blue",
-            "end_header",
         ]
     else:
         header = [
@@ -1107,13 +1106,18 @@ def ply_header(count_vertices, with_normals=False):
             "property uchar diffuse_red",
             "property uchar diffuse_green",
             "property uchar diffuse_blue",
-            "end_header",
         ]
+    
+    if point_num_views:
+        header += ["property uchar views"]
+    
+    header += ["end_header"]
+
     return header
 
 
-def points_to_ply_string(vertices):
-    header = ply_header(len(vertices))
+def points_to_ply_string(vertices, point_num_views=False):
+    header = ply_header(len(vertices), point_num_views=point_num_views)
     return "\n".join(header + vertices + [""])
 
 
@@ -1142,7 +1146,7 @@ def ply_to_points(filename):
     return np.array(points), np.array(normals), np.array(colors)
 
 
-def reconstruction_to_ply(reconstruction, no_cameras=False, no_points=False):
+def reconstruction_to_ply(reconstruction, tracks_manager=None, no_cameras=False, no_points=False, point_num_views=False):
     """Export reconstruction points as a PLY string."""
     vertices = []
 
@@ -1152,6 +1156,13 @@ def reconstruction_to_ply(reconstruction, no_cameras=False, no_points=False):
             s = "{} {} {} {} {} {}".format(
                 p[0], p[1], p[2], int(c[0]), int(c[1]), int(c[2])
             )
+
+            if point_num_views and tracks_manager:
+                obs_count = point.number_of_observations()
+                if not obs_count:
+                    obs_count = len(tracks_manager.get_track_observations(point.id))
+                s += " {}".format(obs_count)
+
             vertices.append(s)
 
     if not no_cameras:
@@ -1165,5 +1176,7 @@ def reconstruction_to_ply(reconstruction, no_cameras=False, no_points=False):
                     s = "{} {} {} {} {} {}".format(
                         p[0], p[1], p[2], int(c[0]), int(c[1]), int(c[2])
                     )
+                    if point_num_views:
+                        s += " 0"
                     vertices.append(s)
-    return points_to_ply_string(vertices)
+    return points_to_ply_string(vertices, point_num_views)
