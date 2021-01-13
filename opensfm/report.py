@@ -212,10 +212,11 @@ class Report:
 
         # Dense (if available)
         if self.stats.get('point_cloud_statistics'):
-            rows.insert(2, [
-                "Reconstructed Points (Dense)",
-                f"{self.stats['point_cloud_statistics']['summary']['num_points']:,} points"
-            ])
+            if self.stats['point_cloud_statistics'].get('dense'):
+                rows.insert(2, [
+                    "Reconstructed Points (Dense)",
+                    f"{self.stats['point_cloud_statistics']['summary']['num_points']:,} points"
+                ])
 
         # GSD (if available)
         if self.stats['odm_processing_statistics'].get('average_gsd'):
@@ -389,10 +390,27 @@ class Report:
     def add_page_break(self):
         self.pdf.add_page("P")
 
-    def generate_report(self, odm_stats = None):
+    def make_survey_data(self):
+        self._make_section("Survey Data")
+
+        self._make_centered_image(
+            os.path.join(self.output_path, "overlap.png"), 140
+        )
+        self._make_centered_image(
+            os.path.join(self.output_path, "overlap_diagram_legend.png"), 4
+        )
+
+        self.pdf.set_xy(self.margin, self.pdf.get_y() + self.margin)
+
+    def generate_report(self):
         self.make_title()
         self.make_dataset_summary()
         self.make_processing_summary()
+        self.add_page_break()
+
+        if os.path.isfile(os.path.join(self.output_path, "overlap.png")):
+            self.make_survey_data()
+        self.make_gps_details()
         self.add_page_break()
 
         self.make_features_details()
@@ -401,5 +419,4 @@ class Report:
         self.add_page_break()
 
         self.make_camera_models_details()
-        self.make_gps_details()
         # self.make_processing_time_details()
