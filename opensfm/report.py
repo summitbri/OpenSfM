@@ -18,7 +18,7 @@ class Report:
         self.mapi_light_light_green = [255, 255, 255]
         self.mapi_light_green = [0, 0, 0]
         self.mapi_light_grey = [218, 222, 228]
-        self.mapi_dark_grey = [99, 115, 129]
+        self.mapi_dark_grey = [0, 0, 0]
 
         self.pdf = FPDF("P", "mm", "A4")
         self.pdf.add_page()
@@ -394,19 +394,53 @@ class Report:
         self._make_section("Survey Data")
 
         self._make_centered_image(
-            os.path.join(self.output_path, "overlap.png"), 140
+            os.path.join(self.output_path, "overlap.png"), 130
         )
         self._make_centered_image(
-            os.path.join(self.output_path, "overlap_diagram_legend.png"), 4
+            os.path.join(self.output_path, "overlap_diagram_legend.png"), 3
         )
 
         self.pdf.set_xy(self.margin, self.pdf.get_y() + self.margin)
+
+    def make_preview(self):
+        ortho = os.path.join(self.output_path, "ortho.png")
+        dsm = os.path.join(self.output_path, "dsm.png")
+
+        if os.path.isfile(ortho) or os.path.isfile(dsm):
+            self._make_section("Previews")
+
+            
+            if os.path.isfile(ortho):
+                self._make_centered_image(
+                    os.path.join(self.output_path, ortho), 110
+                )
+            if os.path.isfile(dsm):
+                self._make_centered_image(
+                    os.path.join(self.output_path, dsm), 110
+                )
+
+                if self.stats.get('dsm_statistics'):
+                    self._make_centered_image(
+                        os.path.join(self.output_path, "dsm_gradient.png"), 4
+                    )
+                    self.pdf.set_font_size(9)
+                    min_text = "{:,.2f}m".format(self.stats['dsm_statistics']['min'])
+                    max_text = "{:,.2f}m".format(self.stats['dsm_statistics']['max'])
+                    self.pdf.text(self.pdf.get_x() + 40, self.pdf.get_y() - 5, min_text)
+                    self.pdf.text(self.pdf.get_x() + 40 + 110.5 - self.pdf.get_string_width(max_text), self.pdf.get_y() - 5, max_text)
+
+            self.pdf.set_xy(self.margin, self.pdf.get_y() + self.margin)
+
+            return True
 
     def generate_report(self):
         self.make_title()
         self.make_dataset_summary()
         self.make_processing_summary()
         self.add_page_break()
+
+        if self.make_preview():
+            self.add_page_break()
 
         if os.path.isfile(os.path.join(self.output_path, "overlap.png")):
             self.make_survey_data()
