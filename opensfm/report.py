@@ -394,7 +394,7 @@ class Report:
         self._make_section("Survey Data")
 
         self._make_centered_image(
-            os.path.join(self.output_path, "overlap.png"), 130
+            os.path.join(self.output_path, "overlap.png"), 110
         )
         self._make_centered_image(
             os.path.join(self.output_path, "overlap_diagram_legend.png"), 3
@@ -402,32 +402,61 @@ class Report:
 
         self.pdf.set_xy(self.margin, self.pdf.get_y() + self.margin)
 
+
+    def _add_image_label(self, text):
+        self.pdf.set_font_size(self.small_text)
+        self.pdf.text(self.pdf.get_x() + self.total_size / 2 - self.pdf.get_string_width(text) / 2, self.pdf.get_y() - 5, text)
+
+
     def make_preview(self):
         ortho = os.path.join(self.output_path, "ortho.png")
         dsm = os.path.join(self.output_path, "dsm.png")
+        dtm = os.path.join(self.output_path, "dtm.png")
+        count = 0
 
         if os.path.isfile(ortho) or os.path.isfile(dsm):
             self._make_section("Previews")
-
             
             if os.path.isfile(ortho):
                 self._make_centered_image(
                     os.path.join(self.output_path, ortho), 110
                 )
-            if os.path.isfile(dsm):
+                self._add_image_label("Orthophoto")
+                count += 1
+
+            if os.path.isfile(dsm) and self.stats.get('dsm_statistics'):
                 self._make_centered_image(
                     os.path.join(self.output_path, dsm), 110
                 )
+                self._add_image_label("Digital Surface Model")
 
-                if self.stats.get('dsm_statistics'):
-                    self._make_centered_image(
-                        os.path.join(self.output_path, "dsm_gradient.png"), 4
-                    )
-                    self.pdf.set_font_size(9)
-                    min_text = "{:,.2f}m".format(self.stats['dsm_statistics']['min'])
-                    max_text = "{:,.2f}m".format(self.stats['dsm_statistics']['max'])
-                    self.pdf.text(self.pdf.get_x() + 40, self.pdf.get_y() - 5, min_text)
-                    self.pdf.text(self.pdf.get_x() + 40 + 110.5 - self.pdf.get_string_width(max_text), self.pdf.get_y() - 5, max_text)
+                self._make_centered_image(
+                    os.path.join(self.output_path, "dsm_gradient.png"), 4
+                )
+                self.pdf.set_font_size(self.small_text)
+                min_text = "{:,.2f}m".format(self.stats['dsm_statistics']['min'])
+                max_text = "{:,.2f}m".format(self.stats['dsm_statistics']['max'])
+                self.pdf.text(self.pdf.get_x() + 40, self.pdf.get_y() - 5, min_text)
+                self.pdf.text(self.pdf.get_x() + 40 + 110.5 - self.pdf.get_string_width(max_text), self.pdf.get_y() - 5, max_text)
+                count += 1
+
+            if os.path.isfile(dtm) and self.stats.get('dtm_statistics'):
+                if count >= 2:
+                    self.add_page_break()
+
+                self._make_centered_image(
+                    os.path.join(self.output_path, dtm), 110
+                )
+                self._add_image_label("Digital Terrain Model")
+
+                self._make_centered_image(
+                    os.path.join(self.output_path, "dsm_gradient.png"), 4
+                )
+                self.pdf.set_font_size(self.small_text)
+                min_text = "{:,.2f}m".format(self.stats['dtm_statistics']['min'])
+                max_text = "{:,.2f}m".format(self.stats['dtm_statistics']['max'])
+                self.pdf.text(self.pdf.get_x() + 40, self.pdf.get_y() - 5, min_text)
+                self.pdf.text(self.pdf.get_x() + 40 + 110.5 - self.pdf.get_string_width(max_text), self.pdf.get_y() - 5, max_text)
 
             self.pdf.set_xy(self.margin, self.pdf.get_y() + self.margin)
 
