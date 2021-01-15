@@ -215,7 +215,7 @@ class Report:
             if self.stats['point_cloud_statistics'].get('dense'):
                 rows.insert(2, [
                     "Reconstructed Points (Dense)",
-                    f"{self.stats['point_cloud_statistics']['summary']['num_points']:,} points"
+                    f"{self.stats['point_cloud_statistics']['stats']['statistic'][0]['count']:,} points"
                 ])
 
         # GSD (if available)
