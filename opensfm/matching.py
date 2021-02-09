@@ -11,9 +11,17 @@ from opensfm import multiview
 from opensfm import pairs_selection
 from opensfm import pyfeatures
 from opensfm import pygeometry
-
+from opensfm.sift_gpu import SiftGpu
 
 logger = logging.getLogger(__name__)
+
+def check_gpu_initialization(config, image, data=None):
+    if 'sift_gpu' not in globals():
+        global sift_gpu
+        if data is not None:
+            sift_gpu = SiftGpu.sift_gpu_from_config(config, data.load_image(image))
+        else:
+            sift_gpu = SiftGpu.sift_gpu_from_config(config, image)
 
 
 def clear_cache():
@@ -215,6 +223,14 @@ def match(im1, im2, camera1, camera2, data, config_override):
             matches = match_brute_force_symmetric(f1, f2, overriden_config)
         else:
             matches = match_brute_force(f1, f2, overriden_config)
+    elif matcher_type == 'SIFT_GPU':
+        check_gpu_initialization(overriden_config, im1, data)
+        k1 = data.load_gpu_features(im1)
+        k2 = data.load_gpu_features(im2)
+        if k1 is None or k2 is None:
+            k1 = feature_loader.instance.create_gpu_keypoints_from_features(p1, f1)
+            k2 = feature_loader.instance.create_gpu_keypoints_from_features(p2, f2)
+        matches = sift_gpu.match_images(k1, k2)
     else:
         raise ValueError("Invalid matcher_type: {}".format(matcher_type))
 

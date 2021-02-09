@@ -7,9 +7,18 @@ import time
 import cv2
 import numpy as np
 from opensfm import context, pyfeatures
-
+from opensfm.sift_gpu import SiftGpu
 
 logger = logging.getLogger(__name__)
+
+
+def check_gpu_initialization(config, image, data=None):
+    if 'sift_gpu' not in globals():
+        global sift_gpu
+        if data is not None:
+            sift_gpu = SiftGpu.sift_gpu_from_config(config, data.load_image(image))
+        else:
+            sift_gpu = SiftGpu.sift_gpu_from_config(config, image)
 
 
 def resized_image(image, max_size):
@@ -28,6 +37,19 @@ def root_feature(desc, l2_normalization=False):
         s2 = np.linalg.norm(desc, axis=1)
         desc = (desc.T / s2).T
     s = np.sum(desc, 1)
+    desc = np.sqrt(desc.T / s).T
+    return desc
+
+
+def root_feature_sift_gpu(desc, l2_normalization=False):
+    if l2_normalization:
+        s2 = np.linalg.norm(desc, axis=1)
+        idx = np.where(s2 == 0)
+        s2[idx] = 1
+        desc = (desc.T / s2).T
+    s = np.max(desc, 1)
+    idx = np.where(s == 0)
+    s[idx] = 1
     desc = np.sqrt(desc.T / s).T
     return desc
 
@@ -139,6 +161,20 @@ def extract_features_sift(image, config, features_count):
     points = np.array([(i.pt[0], i.pt[1], i.size, i.angle) for i in points])
     return points, desc
 
+def extract_features_sift_gpu(image, config):
+    check_gpu_initialization(config, image)
+    keypoints = sift_gpu.detect_image(image)
+    idx = np.where(np.sum(keypoints.desc, 1) != 0)
+    keypoints = keypoints[idx]
+
+    points = np.concatenate([np.expand_dims(keypoints[:].x, axis=1),
+                             np.expand_dims(keypoints[:].y, axis=1),
+                             np.expand_dims(keypoints[:].scale, axis=1),
+                             np.expand_dims(keypoints[:].angle, axis=1)], axis=1)
+    desc = np.array(keypoints[:].desc, dtype=np.float32)
+    if config['feature_root']:
+        desc = root_feature_sift_gpu(desc)
+    return points, desc, keypoints
 
 def extract_features_surf(image, config, features_count):
     surf_hessian_threshold = config["surf_hessian_threshold"]
@@ -313,6 +349,7 @@ def extract_features(image, config, is_panorama):
     else:
         image_gray = image
 
+    keypoints = None
     feature_type = config["feature_type"].upper()
     if feature_type == "SIFT":
         points, desc = extract_features_sift(image_gray, config, features_count)
@@ -324,9 +361,11 @@ def extract_features(image, config, is_panorama):
         points, desc = extract_features_hahog(image_gray, config, features_count)
     elif feature_type == "ORB":
         points, desc = extract_features_orb(image_gray, config, features_count)
+    elif feature_type == 'SIFT_GPU':
+        points, desc, keypoints = extract_features_sift_gpu(image, config)
     else:
         raise ValueError(
-            "Unknown feature type " "(must be SURF, SIFT, AKAZE, HAHOG or ORB)"
+            "Unknown feature type " "(must be SURF, SIFT, AKAZE, HAHOG, SIFT_GPU or ORB)"
         )
 
     xs = points[:, 0].round().astype(int)
@@ -334,6 +373,10 @@ def extract_features(image, config, is_panorama):
     colors = image[ys, xs]
     if image.shape[2] == 1:
         colors = np.repeat(colors, 3).reshape((-1, 3))
+
+    if keypoints is not None:
+        return normalize_features(points, desc, colors,
+                                  image.shape[1], image.shape[0]), keypoints
 
     return normalize_features(points, desc, colors, image.shape[1], image.shape[0])
 

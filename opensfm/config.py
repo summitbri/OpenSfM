@@ -10,7 +10,7 @@ default_focal_prior: 0.85
 camera_projection_type: AUTO        # The projection type of the camera : attempt to detect it from metadata (AUTO), or set it manually (PERSPECTIVE, BROWN, FISHEYE, SPHERICAL) 
 
 # Params for features
-feature_type: HAHOG                     # Feature type (AKAZE, SURF, SIFT, HAHOG, ORB)
+feature_type: HAHOG                     # Feature type (AKAZE, SURF, SIFT, HAHOG, ORB, SIFT_GPU)
 feature_root: 1                         # If 1, apply square root mapping to features
 feature_min_frames: 4000                # If fewer frames are detected, sift_peak_threshold/surf_hessian_threshold is reduced.
 feature_min_frames_panorama: 16000      # Same as above but for panorama images
@@ -21,6 +21,13 @@ feature_use_adaptive_suppression: no
 # Params for SIFT
 sift_peak_threshold: 0.1     # Smaller value -> more features
 sift_edge_threshold: 10       # See OpenCV doc
+
+# Params for SIFT_GPU  
+# More information on Feature detection http://www.silx.org/doc/silx/dev/_modules/silx/opencl/sift/plan.html#SiftPlan
+# More information on Feature Matching http://www.silx.org/doc/silx/dev/_modules/silx/opencl/sift/match.html
+sift_gpu_init_sigma: 1.6  # blurring width, you should have good reasons to modify the 1.6 default value 
+pix_per_keypoints: 10  # Number of key-point pre-allocated: 1 for 10 pixel
+sift_gpu_device_type: GPU  # Can be 'CPU' or 'GPU'
 
 # Params for SURF
 surf_hessian_threshold: 3000  # Smaller value -> more features
@@ -44,7 +51,7 @@ hahog_normalize_to_uchar: yes
 
 # Params for general matching
 lowes_ratio: 0.8              # Ratio test for matches
-matcher_type: FLANN           # FLANN, BRUTEFORCE, or WORDS
+matcher_type: FLANN           # FLANN, BRUTEFORCE, SIFT_GPU or WORDS
 symmetric_matching: yes       # Match symmetricly or one-way
 
 # Params for FLANN matching

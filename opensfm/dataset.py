@@ -342,8 +342,26 @@ class DataSet(object):
     def save_features(self, image, points, descriptors, colors):
         self._save_features(self._feature_file(image), points, descriptors, colors)
 
+     def save_gpu_features(self, image, keypoints):
+        io.mkdir_p(self._feature_path())
+        path = "./"+self._gpu_feature_file(image)
+        # Store data (serialize)
+        with open(path, 'wb+') as handle:
+            pickle.dump(keypoints, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+    def load_gpu_features(self, image):
+        path = self._gpu_feature_file(image)
+        if os.path.isfile(path):
+            with open(path, 'rb') as handle:
+                keypoints = pickle.load(handle)
+                return keypoints
+        return None
+
     def _words_file(self, image):
         return os.path.join(self._feature_path(), image + ".words.npz")
+
+    def _gpu_feature_file(self, image):
+        return os.path.join(self._feature_path(), image.rsplit(".")[0] + '_gpu.pkl')
 
     def words_exist(self, image):
         return os.path.isfile(self._words_file(image))
