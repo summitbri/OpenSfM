@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 def run_dataset(
-    data, proj, transformation, image_positions, reconstruction, dense, output
+    data, proj, transformation, image_positions, reconstruction, dense, output, offset = (0, 0)
 ):
     """Export reconstructions in geographic coordinates
 
@@ -22,6 +22,7 @@ def run_dataset(
         reconstruction : export reconstruction.json
         dense : export dense point cloud (depthmaps/merged.ply)
         output : path of the output file relative to the dataset
+        offset : offset to substract from the translation (optional)
 
     """
 
@@ -32,7 +33,7 @@ def run_dataset(
     reference = data.load_reference()
 
     projection = pyproj.Proj(proj)
-    t = _get_transformation(reference, projection)
+    t = _get_transformation(reference, projection, offset)
 
     if transformation:
         output = output or "geocoords_transformation.txt"
@@ -59,15 +60,15 @@ def run_dataset(
         _transform_dense_point_cloud(udata, t, output_path)
 
 
-def _get_transformation(reference, projection):
+def _get_transformation(reference, projection, offset):
     """Get the linear transform from reconstruction coords to geocoords."""
     p = [[1, 0, 0], [0, 1, 0], [0, 0, 1], [0, 0, 0]]
     q = [_transform(point, reference, projection) for point in p]
 
     transformation = np.array(
         [
-            [q[0][0] - q[3][0], q[1][0] - q[3][0], q[2][0] - q[3][0], q[3][0]],
-            [q[0][1] - q[3][1], q[1][1] - q[3][1], q[2][1] - q[3][1], q[3][1]],
+            [q[0][0] - q[3][0], q[1][0] - q[3][0], q[2][0] - q[3][0], q[3][0] - offset[0]],
+            [q[0][1] - q[3][1], q[1][1] - q[3][1], q[2][1] - q[3][1], q[3][1] - offset[1]],
             [q[0][2] - q[3][2], q[1][2] - q[3][2], q[2][2] - q[3][2], q[3][2]],
             [0, 0, 0, 1],
         ]

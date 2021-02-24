@@ -16,6 +16,7 @@ class Command(command.CommandBase):
             args.reconstruction,
             args.dense,
             args.output,
+            (args.offset_x, args.offset_y)
         )
 
     def add_arguments_impl(self, parser):
@@ -47,3 +48,10 @@ class Command(command.CommandBase):
         parser.add_argument(
             "--output", help="Path of the output file relative to the dataset"
         )
+        parser.add_argument(
+            "--offset-x", type=float, help="Value to add to the final translation X axis", default=0.0
+        )
+        parser.add_argument(
+            "--offset-y", type=float, help="Value to add to the final translation Y axis", default=0.0
+        )
+        
