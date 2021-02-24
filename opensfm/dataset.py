@@ -342,9 +342,9 @@ class DataSet(object):
     def save_features(self, image, points, descriptors, colors):
         self._save_features(self._feature_file(image), points, descriptors, colors)
 
-     def save_gpu_features(self, image, keypoints):
+    def save_gpu_features(self, image, keypoints):
         io.mkdir_p(self._feature_path())
-        path = "./"+self._gpu_feature_file(image)
+        path = os.path.join(self._feature_path(), self._gpu_feature_file(image))
         # Store data (serialize)
         with open(path, 'wb+') as handle:
             pickle.dump(keypoints, handle, protocol=pickle.HIGHEST_PROTOCOL)

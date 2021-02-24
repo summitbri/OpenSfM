@@ -7,18 +7,9 @@ import time
 import cv2
 import numpy as np
 from opensfm import context, pyfeatures
-from opensfm.sift_gpu import SiftGpu
+from opensfm.sift_gpu import get_sift_gpu
 
 logger = logging.getLogger(__name__)
-
-
-def check_gpu_initialization(config, image, data=None):
-    if 'sift_gpu' not in globals():
-        global sift_gpu
-        if data is not None:
-            sift_gpu = SiftGpu.sift_gpu_from_config(config, data.load_image(image))
-        else:
-            sift_gpu = SiftGpu.sift_gpu_from_config(config, image)
 
 
 def resized_image(image, max_size):
@@ -161,9 +152,23 @@ def extract_features_sift(image, config, features_count):
     points = np.array([(i.pt[0], i.pt[1], i.size, i.angle) for i in points])
     return points, desc
 
-def extract_features_sift_gpu(image, config):
-    check_gpu_initialization(config, image)
-    keypoints = sift_gpu.detect_image(image)
+def extract_features_sift_gpu(image, config, features_count):
+    # sift_peak_threshold = float(config["sift_peak_threshold"])
+    # sift_edge_threshold = config["sift_edge_threshold"]
+
+    # while True:
+    #     logger.debug("Computing gpu sift with threshold {0}".format(sift_peak_threshold))
+    #     t = time.time()
+    keypoints = get_sift_gpu().detect_image(image)
+    # if len(keypoints) < features_count and sift_peak_threshold > 0.0001:
+    #     logger.debug("Found {0} points in {1}s".format(len(keypoints), time.time() - t))
+    #     sift_peak_threshold = (sift_peak_threshold * 2) / 3
+    #     logger.debug("reducing threshold")
+    # else:
+    #     logger.debug("done")
+    #     break
+    logger.debug("Found {} keypoints".format(len(keypoints)))
+        
     idx = np.where(np.sum(keypoints.desc, 1) != 0)
     keypoints = keypoints[idx]
 
@@ -362,7 +367,7 @@ def extract_features(image, config, is_panorama):
     elif feature_type == "ORB":
         points, desc = extract_features_orb(image_gray, config, features_count)
     elif feature_type == 'SIFT_GPU':
-        points, desc, keypoints = extract_features_sift_gpu(image, config)
+        points, desc, keypoints = extract_features_sift_gpu(image, config, features_count)
     else:
         raise ValueError(
             "Unknown feature type " "(must be SURF, SIFT, AKAZE, HAHOG, SIFT_GPU or ORB)"
