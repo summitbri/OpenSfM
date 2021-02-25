@@ -5,7 +5,7 @@ from opensfm import io
 from opensfm import stats
 
 logger = logging.getLogger(__name__)
-
+logging.getLogger('matplotlib.font_manager').disabled = True
 
 def run_dataset(data, diagram_max_points = -1):
     """Compute various staistics of a datasets and write them to 'stats' folder
