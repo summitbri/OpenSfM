@@ -10,7 +10,7 @@ default_focal_prior: 0.85
 camera_projection_type: AUTO        # The projection type of the camera : attempt to detect it from metadata (AUTO), or set it manually (PERSPECTIVE, BROWN, FISHEYE, SPHERICAL) 
 
 # Params for features
-feature_type: HAHOG                     # Feature type (AKAZE, SURF, SIFT, HAHOG, ORB)
+feature_type: HAHOG                     # Feature type (AKAZE, SURF, SIFT, HAHOG, ORB, SIFT_GPU)
 feature_root: 1                         # If 1, apply square root mapping to features
 feature_min_frames: 4000                # If fewer frames are detected, sift_peak_threshold/surf_hessian_threshold is reduced.
 feature_min_frames_panorama: 16000      # Same as above but for panorama images
@@ -44,7 +44,7 @@ hahog_normalize_to_uchar: yes
 
 # Params for general matching
 lowes_ratio: 0.8              # Ratio test for matches
-matcher_type: FLANN           # FLANN, BRUTEFORCE, or WORDS
+matcher_type: FLANN           # FLANN, BRUTEFORCE, SIFT_GPU or WORDS
 symmetric_matching: yes       # Match symmetricly or one-way
 
 # Params for FLANN matching
