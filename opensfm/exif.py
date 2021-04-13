@@ -344,7 +344,13 @@ class EXIF:
         if self.has_dji_xmp():
             altitude = self.extract_dji_altitude()
         elif "GPS GPSAltitude" in self.tags:
-            altitude = eval_frac(self.tags["GPS GPSAltitude"].values[0])
+            alt_value = self.tags["GPS GPSAltitude"].values[0]
+            if isinstance(alt_value, exifread.utils.Ratio):
+                altitude = eval_frac(alt_value)
+            elif isinstance(alt_value, int):
+                altitude = float(alt_value)
+            else:
+                altitude = None
         else:
             altitude = None
         return altitude
