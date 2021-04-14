@@ -7,7 +7,7 @@ import cv2
 import networkx as nx
 import numpy as np
 import scipy.spatial as spatial
-import psutil
+import vmem
 
 from collections import namedtuple
 from networkx.algorithms import bipartite
@@ -182,7 +182,7 @@ def add_camera_constraints_hard(
                 )
 
 
-@lru_cache(use_memory_up_to=psutil.virtual_memory().available * 0.9)
+@lru_cache(use_memory_up_to=vmem.virtual_memory().available * 0.9)
 def load_reconstruction(path, index):
     d1 = dataset.DataSet(path)
     r1 = d1.load_reconstruction()[index]

@@ -11,10 +11,10 @@ if there are fewer than ``use_memory_up_to`` bytes of memory available.
 
 If ``use_memory_up_to`` is set, then ``maxsize`` has no effect.
 
-Uses the ``psutil`` module to get the available memory.
+Uses the ``vmem`` module to get the available memory.
 """
 
-import psutil
+import vmem
 try:
     from functools import RLock, namedtuple
 except ImportError:
@@ -169,7 +169,7 @@ def lru_cache(maxsize=128, typed=False, use_memory_up_to=False):
                         last = nonloc.root[PREV]
                         link = [last, nonloc.root, key, result]
                         last[NEXT] = nonloc.root[PREV] = cache[key] = link
-                        nonloc.full = (psutil.virtual_memory().available
+                        nonloc.full = (vmem.virtual_memory().available
                                 < use_memory_up_to)
                     nonloc.misses += 1
                 return result
