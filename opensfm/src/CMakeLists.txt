@@ -7,7 +7,13 @@ if(NOT CMAKE_BUILD_TYPE)
       "Choose the type of build, options are: None Debug Release RelWithDebInfo MinSizeRel."
       FORCE)
 endif()
+
+if (WIN32)
+# Fixes a problem with finding/linking suitesparse :/
+set(CMAKE_MODULE_PATH ${opensfm_SOURCE_DIR}/cmake/win32)
+else()
 set(CMAKE_MODULE_PATH ${opensfm_SOURCE_DIR}/cmake)
+endif()
 
 if (WIN32)
 # Place compilation results in opensfm/ folder, not in Debug/ or Release/
