@@ -7,7 +7,7 @@ try:
     logging.getLogger("pyopencl").setLevel(logging.WARNING)
     logging.getLogger("pytools").setLevel(logging.WARNING)
 except ImportError:
-    logging.info('Cant import silx library for running SIFT_GPU feature extractor or matching,'
+    logging.debug('Cant import silx library for running SIFT_GPU feature extractor or matching,'
                  'please change the config file or install the silx library via pip')
     pass
 
