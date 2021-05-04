@@ -125,7 +125,7 @@ class Report:
         self.pdf.set_xy(self.margin, self.title_size)
 
         # version number
-        version_file = os.path.join(os.path.dirname(__file__), "../../../../VERSION")
+        version_file = os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "..", "VERSION")
         version = ""
         try:
             with open(version_file, 'r') as f:
