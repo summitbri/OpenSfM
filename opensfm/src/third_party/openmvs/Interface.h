@@ -416,13 +416,22 @@ struct Interface
 			inline Pos3d GetTranslation() const { return R*(-C); }
 			inline void SetTranslation(const Pos3d& T) { C = R.t()*(-T); }
 
-			Pose() {}
-			template <typename MAT, typename POS>
-			Pose(const MAT& _R, const POS& _C) : R(_R), C(_C) {}
+			// combine poses
+			inline Pose operator * (const Pose& P) const {
+				return Pose(R*P.R, P.R.t()*C+P.C);
+			}
+			inline Pose& operator *= (const Pose& P) {
+				R = R*P.R; C = P.R.t()*C+P.C; return *this;
+			}
 
-			// translation vector t = -RC
-			inline Pos3d GetTranslation() const { return R*(-C); }
-			inline void SetTranslation(const Pos3d& T) { C = R.t()*(-T); }
+			// project point: world to local coordinates
+			inline Pos3d operator * (const Pos3d& X) const {
+				return R * (X - C);
+			}
+			// back-project point: local to world coordinates
+			inline Pos3d operator / (const Pos3d& X) const {
+				return R.t() * X + C;
+			}
 
 			template <class Archive>
 			void serialize(Archive& ar, const unsigned int /*version*/) {
@@ -497,6 +506,7 @@ struct Interface
 		uint32_t ID; // ID of this image in the global space (optional)
 
 		Image() : platformID(NO_ID), cameraID(NO_ID), poseID(NO_ID), ID(NO_ID) {}
+
 		bool IsValid() const { return poseID != NO_ID; }
 
 		template <class Archive>
@@ -636,6 +646,29 @@ struct Interface
 	Platform::Pose GetPose(uint32_t imageID) const {
 		const Image& image = images[imageID];
 		return platforms[image.platformID].GetPose(image.cameraID, image.poseID);
+	}
+
+	// apply similarity transform
+	void Transform(const Mat33d& rotation, const Pos3d& translation, const double scale) {
+		for (Platform& platform : platforms) {
+			for (Platform::Pose& pose : platform.poses) {
+				pose.R = pose.R * rotation.t();
+				pose.C = rotation * pose.C * scale + translation;
+			}
+		}
+		for (Vertex& vertex : vertices) {
+			vertex.X = rotation * Pos3d(vertex.X) * scale + translation;
+		}
+		for (Normal& normal : verticesNormal) {
+			normal.n = rotation * Pos3d(normal.n);
+		}
+		for (Line& line : lines) {
+			line.pt1 = rotation * Pos3d(line.pt1) * scale + translation;
+			line.pt2 = rotation * Pos3d(line.pt2) * scale + translation;
+		}
+		for (Normal& normal : linesNormal) {
+			normal.n = rotation * Pos3d(normal.n);
+		}
 	}
 
 	template <class Archive>
