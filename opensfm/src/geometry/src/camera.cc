@@ -1,9 +1,12 @@
 #include <geometry/camera.h>
-#include <geometry/camera_functions.h>
+
 #include <iostream>
 
-Camera::Camera(const std::vector<Camera::Parameters>& types,
-               const VecXd& values) {}
+namespace geometry {
+Camera::Camera(const ProjectionType& type,
+               const std::vector<Camera::Parameters>& types,
+               const VecXd& values)
+    : type_(type), types_(types), values_(values) {}
 
 Camera Camera::CreatePerspectiveCamera(double focal, double k1, double k2) {
   Camera camera;
@@ -46,8 +49,8 @@ Camera Camera::CreateFisheyeCamera(double focal, double k1, double k2) {
 };
 
 Camera Camera::CreateFisheyeOpencvCamera(double focal, double aspect_ratio,
-                                         const Eigen::Vector2d& principal_point,
-                                         const Eigen::VectorXd& distortion) {
+                                         const Vec2d& principal_point,
+                                         const VecXd& distortion) {
   Camera camera;
   if (distortion.size() != 4) {
     throw std::runtime_error("Invalid distortion coefficients size");
@@ -70,8 +73,8 @@ Camera Camera::CreateFisheyeOpencvCamera(double focal, double aspect_ratio,
   See: https://fburl.com/diffusion/xnhraa2z
 */
 Camera Camera::CreateFisheye62Camera(double focal, double aspect_ratio,
-                                     const Eigen::Vector2d& principal_point,
-                                     const Eigen::VectorXd& distortion) {
+                                     const Vec2d& principal_point,
+                                     const VecXd& distortion) {
   if (distortion.size() != 8) {
     throw std::runtime_error("Invalid distortion coefficients size");
   }
@@ -85,8 +88,8 @@ Camera Camera::CreateFisheye62Camera(double focal, double aspect_ratio,
                    Camera::Parameters::Cx,    Camera::Parameters::Cy};
   camera.values_.resize(12);
   camera.values_ << distortion[0], distortion[1], distortion[2], distortion[3],
-      distortion[4], distortion[5], distortion[6], distortion[7], focal, aspect_ratio,
-      principal_point[0], principal_point[1];
+      distortion[4], distortion[5], distortion[6], distortion[7], focal,
+      aspect_ratio, principal_point[0], principal_point[1];
   return camera;
 }
 
@@ -110,11 +113,41 @@ Camera Camera::CreateSphericalCamera() {
   return camera;
 };
 
+Camera Camera::CreateRadialCamera(double focal, double aspect_ratio,
+                                  const Vec2d& principal_point,
+                                  const Vec2d& distortion) {
+  Camera camera;
+  camera.type_ = ProjectionType::RADIAL;
+  camera.types_ = {Camera::Parameters::K1,    Camera::Parameters::K2,
+                   Camera::Parameters::Focal, Camera::Parameters::AspectRatio,
+                   Camera::Parameters::Cx,    Camera::Parameters::Cy};
+  camera.values_.resize(camera.types_.size());
+  camera.values_ << distortion[0], distortion[1], focal, aspect_ratio,
+      principal_point[0], principal_point[1];
+  return camera;
+}
+
+Camera Camera::CreateSimpleRadialCamera(double focal, double aspect_ratio,
+                                        const Vec2d& principal_point,
+                                        double k1) {
+  Camera camera;
+  camera.type_ = ProjectionType::SIMPLE_RADIAL;
+  camera.types_ = {Camera::Parameters::K1, Camera::Parameters::Focal,
+                   Camera::Parameters::AspectRatio, Camera::Parameters::Cx,
+                   Camera::Parameters::Cy};
+  camera.values_.resize(camera.types_.size());
+  camera.values_ << k1, focal, aspect_ratio, principal_point[0],
+      principal_point[1];
+  return camera;
+}
+
 std::vector<Camera::Parameters> Camera::GetParametersTypes() const {
   return types_;
 }
 
 VecXd Camera::GetParametersValues() const { return values_; }
+
+void Camera::SetParametersValues(const VecXd& values) { values_ = values; }
 
 std::map<Camera::Parameters, double, Camera::CompParameters>
 Camera::GetParametersMap() const {
@@ -168,6 +201,10 @@ std::string Camera::GetProjectionString(const ProjectionType& type) {
       return "dual";
     case ProjectionType::SPHERICAL:
       return "spherical";
+    case ProjectionType::RADIAL:
+      return "radial";
+    case ProjectionType::SIMPLE_RADIAL:
+      return "simple_radial";
     default:
       throw std::runtime_error("Invalid ProjectionType");
   }
@@ -226,8 +263,8 @@ Vec2d Camera::Project(const Vec3d& point) const {
   return projected;
 }
 
-Eigen::MatrixX2d Camera::ProjectMany(const Eigen::MatrixX3d& points) const {
-  Eigen::MatrixX2d projected(points.rows(), 2);
+MatX2d Camera::ProjectMany(const MatX3d& points) const {
+  MatX2d projected(points.rows(), 2);
   for (int i = 0; i < points.rows(); ++i) {
     projected.row(i) = Project(points.row(i));
   }
@@ -241,15 +278,13 @@ Vec3d Camera::Bearing(const Vec2d& point) const {
   return bearing;
 }
 
-Eigen::MatrixX3d Camera::BearingsMany(const Eigen::MatrixX2d& points) const {
-  Eigen::MatrixX3d projected(points.rows(), 3);
+MatX3d Camera::BearingsMany(const MatX2d& points) const {
+  MatX3d projected(points.rows(), 3);
   for (int i = 0; i < points.rows(); ++i) {
     projected.row(i) = Bearing(points.row(i));
   }
   return projected;
 }
-
-Camera::Camera() : type_(ProjectionType::PERSPECTIVE) {}
 
 std::pair<MatXf, MatXf> ComputeCameraMapping(const Camera& from,
                                              const Camera& to, int width,
@@ -297,3 +332,4 @@ Vec2d Camera::PixelToNormalizedCoordinates(const Vec2d& px_coord,
   return Vec2d((px_coord[0] + 0.5 - width / 2.0) * inv_size,
                (px_coord[1] + 0.5 - height / 2.0) * inv_size);
 }
+}  // namespace geometry

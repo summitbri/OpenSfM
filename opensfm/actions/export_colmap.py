@@ -41,11 +41,12 @@ import numpy as np
 from opensfm import features
 from opensfm import io
 from opensfm import matching
+from opensfm.dataset import DataSet
 
 I_3 = np.eye(3)
 
 
-def run_dataset(data, binary):
+def run_dataset(data: DataSet, binary):
     """ Export reconstruction to COLMAP format."""
 
     export_folder = os.path.join(data.data_path, "colmap_export")
@@ -82,7 +83,7 @@ def run_dataset(data, binary):
     db.close()
 
 
-IS_PYTHON3 = sys.version_info[0] >= 3
+IS_PYTHON3 = int(sys.version_info[0]) >= 3
 
 MAX_IMAGE_ID = 2 ** 31 - 1
 
@@ -379,8 +380,10 @@ def export_features(data, db, images_map):
     for image in data.images():
         width = data.load_exif(image)["width"]
         height = data.load_exif(image)["height"]
-        feat, _, _ = data.load_features(image)
-        feat = features.denormalized_image_coordinates(feat, width, height)
+        features_data = data.load_features(image)
+        if not features_data:
+            continue
+        feat = features.denormalized_image_coordinates(features_data.points, width, height)
         features_map[image] = feat
         db.add_keypoints(images_map[image], feat)
     return features_map

@@ -1,26 +1,40 @@
 import logging
+import typing as t
 
 import networkx as nx
 import numpy as np
 from opensfm import pysfm
+from opensfm.dataset import DataSetBase
 from opensfm.unionfind import UnionFind
 
 
 logger = logging.getLogger(__name__)
 
 
-def load_features(dataset, images):
+def load_features(dataset: DataSetBase, images):
     logging.info("reading features")
     features = {}
     colors = {}
+    segmentations = {}
+    instances = {}
     for im in images:
-        p, f, c = dataset.load_features(im)
-        features[im] = p[:, :3]
-        colors[im] = c
-    return features, colors
+        features_data = dataset.load_features(im)
+
+        if not features_data:
+            continue
+
+        features[im] = features_data.points[:, :3]
+        colors[im] = features_data.colors
+
+        semantic_data = features_data.semantic
+        if semantic_data:
+            segmentations[im] = semantic_data.segmentation
+            instances[im] = semantic_data.instances
+
+    return features, colors, segmentations, instances
 
 
-def load_matches(dataset, images):
+def load_matches(dataset: DataSetBase, images):
     matches = {}
     for im1 in images:
         try:
@@ -33,7 +47,7 @@ def load_matches(dataset, images):
     return matches
 
 
-def create_tracks_manager(features, colors, matches, config):
+def create_tracks_manager(features, colors, segmentations, instances, matches, config):
     """Link matches into tracks."""
     logger.debug("Merging features onto tracks")
     uf = UnionFind()
@@ -53,6 +67,7 @@ def create_tracks_manager(features, colors, matches, config):
     tracks = [t for t in sets.values() if _good_track(t, min_length)]
     logger.debug("Good tracks: {}".format(len(tracks)))
 
+    NO_VALUE = pysfm.Observation.NO_SEMANTIC_VALUE
     tracks_manager = pysfm.TracksManager()
     for track_id, track in enumerate(tracks):
         for image, featureid in track:
@@ -60,7 +75,13 @@ def create_tracks_manager(features, colors, matches, config):
                 continue
             x, y, s = features[image][featureid]
             r, g, b = colors[image][featureid]
-            obs = pysfm.Observation(x, y, s, int(r), int(g), int(b), featureid)
+            segmentation, instance = (
+                segmentations[image][featureid] if image in segmentations else NO_VALUE,
+                instances[image][featureid] if image in instances else NO_VALUE,
+            )
+            obs = pysfm.Observation(
+                x, y, s, int(r), int(g), int(b), featureid, segmentation, instance
+            )
             tracks_manager.add_observation(image, str(track_id), obs)
     return tracks_manager
 
@@ -89,7 +110,34 @@ def common_tracks(tracks_manager, im1, im2):
     return tracks, p1, p2
 
 
-def all_common_tracks(tracks_manager, include_features=True, min_common=50):
+TPairTracks = t.Tuple[t.List[str], np.ndarray, np.ndarray]
+
+
+def all_common_tracks_with_features(
+    tracks_manager: pysfm.TracksManager,
+    min_common: int = 50,
+) -> t.Dict[t.Tuple[str, str], TPairTracks]:
+    tracks = all_common_tracks(
+        tracks_manager, include_features=True, min_common=min_common
+    )
+    return t.cast(t.Dict[t.Tuple[str, str], TPairTracks], tracks)
+
+
+def all_common_tracks_without_features(
+    tracks_manager: pysfm.TracksManager,
+    min_common: int = 50,
+) -> t.Dict[t.Tuple[str, str], t.List[str]]:
+    tracks = all_common_tracks(
+        tracks_manager, include_features=False, min_common=min_common
+    )
+    return t.cast(t.Dict[t.Tuple[str, str], t.List[str]], tracks)
+
+
+def all_common_tracks(
+    tracks_manager: pysfm.TracksManager,
+    include_features: bool = True,
+    min_common: int = 50,
+) -> t.Dict[t.Tuple[str, str], t.Union[TPairTracks, t.List[str]]]:
     """List of tracks observed by each image pair.
 
     Args:
@@ -143,7 +191,7 @@ def as_weighted_graph(tracks_manager):
 
 
 def as_graph(tracks_manager):
-    """ Return the tracks manager as a bipartite graph (legacy). """
+    """Return the tracks manager as a bipartite graph (legacy)."""
     tracks = tracks_manager.get_track_ids()
     images = tracks_manager.get_shot_ids()
 
@@ -161,5 +209,7 @@ def as_graph(tracks_manager):
                 feature_scale=obs.scale,
                 feature_id=obs.id,
                 feature_color=obs.color,
+                feature_segmentation=obs.segmentation,
+                feature_instance=obs.instance,
             )
     return graph

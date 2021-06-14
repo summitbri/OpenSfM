@@ -21,11 +21,7 @@ import numpy as np
 import opensfm.actions.undistort as osfm_u
 from matplotlib import cm
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-from opensfm import dataset
-from opensfm import features
-from opensfm import pygeometry
-from opensfm import pysfm
-from opensfm import types
+from opensfm import dataset, features, pygeometry, pysfm, types
 
 EXPORT_DIR_NAME = "opensfm_export"
 logger = logging.getLogger(__name__)
@@ -48,6 +44,7 @@ camera_models = {
 def compute_and_save_undistorted_reconstruction(
     reconstruction, tracks_manager, data, udata
 ):
+    image_format = data.config["undistorted_image_format"]
     urec = types.Reconstruction()
     utracks_manager = pysfm.TracksManager()
     undistorted_shots = []
@@ -61,7 +58,7 @@ def compute_and_save_undistorted_reconstruction(
         else:
             raise ValueError
         urec.add_camera(ucamera)
-        ushot = osfm_u.get_shot_with_different_camera(urec, shot, ucamera)
+        ushot = osfm_u.get_shot_with_different_camera(urec, shot, ucamera, image_format)
         if tracks_manager:
             osfm_u.add_subshot_tracks(tracks_manager, utracks_manager, shot, ushot)
         undistorted_shots.append(ushot)
@@ -204,7 +201,8 @@ def import_features(db, data, image_map, camera_map):
         filename, _ = image_map[image_id]
         descriptors = np.fromstring(arr, dtype=np.uint8).reshape((n_rows, n_cols))
         kp = keypoints[image_id]
-        data.save_features(filename, kp, descriptors, colors[image_id])
+        features_data = features.FeaturesData(kp, descriptors, colors[image_id], None)
+        data.save_features(filename, features_data)
 
     cursor.close()
     return keypoints
@@ -393,7 +391,13 @@ def import_images_reconstruction(path_images, keypoints, rec):
                     kp = keypoints[image_id][point2d_ix]
                     r, g, b = rec.points[str(point3d_id)].color
                     obs = pysfm.Observation(
-                        x, y, kp[2], int(r), int(g), int(b), point2d_ix
+                        x,
+                        y,
+                        kp[2],
+                        int(r),
+                        int(g),
+                        int(b),
+                        point2d_ix,
                     )
                     tracks_manager.add_observation(shot.id, str(point3d_id), obs)
 

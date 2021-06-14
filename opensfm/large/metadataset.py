@@ -198,7 +198,7 @@ class MetaDataSet:
             io.mkdir_p(os.path.join(submodel_path, "reports"))
 
             # create symlinks to additional files
-            filenames = [
+            filepaths = [
                 "camera_models.json",
                 "reference_lla.json",
                 "exif",
@@ -211,8 +211,8 @@ class MetaDataSet:
                 os.path.join("reports", "features.json"),
                 os.path.join("reports", "matches.json"),
             ]
-            for filename in filenames:
-                self._create_symlink(submodel_path, filename)
+            for filepath in filepaths:
+                self._create_symlink(submodel_path, filepath)
 
 
     def get_submodel_paths(self):

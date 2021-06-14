@@ -1,5 +1,6 @@
 #pragma once
 #include <foundation/types.h>
+
 #include <Eigen/Core>
 #include <memory>
 #include <vector>
@@ -15,12 +16,15 @@ struct KeyCompare {
   }
 };
 
+using RigCameraId = std::string;
+using RigInstanceId = size_t;
 using ShotId = std::string;
 using ShotUniqueId = size_t;
 using LandmarkId = std::string;
 using LandmarkUniqueId = size_t;
 using FeatureId = size_t;
 using CameraId = std::string;
+using CameraUniqueId = size_t;
 }  // namespace map
 template <class T>
 using AlignedVector = std::vector<T, Eigen::aligned_allocator<T>>;

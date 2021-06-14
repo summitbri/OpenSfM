@@ -1,7 +1,8 @@
 import json
 import logging
 import os
-from typing import List
+import typing as t
+from abc import ABC, abstractmethod
 
 import cv2
 import numpy as np
@@ -10,6 +11,7 @@ from opensfm import context, features, geo, pygeometry, pymap, types
 from PIL import Image
 
 import rasterio
+import sys
 from rasterio.plot import reshape_as_image
 import warnings
 warnings.filterwarnings("ignore", category=rasterio.errors.NotGeoreferencedWarning)
@@ -75,6 +77,23 @@ def camera_from_json(key, obj):
                 obj.get("p2", 0.0),
             ],
         )
+    elif pt == "radial":
+        camera = pygeometry.Camera.create_radial(
+            obj["focal_x"],
+            obj["focal_y"] / obj["focal_x"],
+            [obj.get("c_x", 0.0), obj.get("c_y", 0.0)],
+            [
+                obj.get("k1", 0.0),
+                obj.get("k2", 0.0),
+            ],
+        )
+    elif pt == "simple_radial":
+        camera = pygeometry.Camera.create_simple_radial(
+            obj["focal_x"],
+            obj["focal_y"] / obj["focal_x"],
+            [obj.get("c_x", 0.0), obj.get("c_y", 0.0)],
+            obj.get("k1", 0.0),
+        )
     elif pt == "dual":
         camera = pygeometry.Camera.create_dual(
             obj.get("transition", 0.5),
@@ -92,21 +111,16 @@ def camera_from_json(key, obj):
     return camera
 
 
-def shot_from_json(reconstruction, key, obj, is_pano_shot=False):
-    """
-    Read shot from a json object
-    """
+def pose_from_json(obj):
     pose = pygeometry.Pose()
     pose.rotation = obj["rotation"]
     if "translation" in obj:
         pose.translation = obj["translation"]
+    return pose
 
-    if is_pano_shot:
-        shot = reconstruction.create_pano_shot(key, obj["camera"], pose)
-    else:
-        shot = reconstruction.create_shot(key, obj["camera"], pose)
+
+def assign_shot_attributes(obj, shot):
     shot.metadata = json_to_pymap_metadata(obj)
-
     if "scale" in obj:
         shot.scale = obj["scale"]
     if "covariance" in obj:
@@ -117,6 +131,28 @@ def shot_from_json(reconstruction, key, obj, is_pano_shot=False):
         shot.mesh.vertices = obj["vertices"]
         shot.mesh.faces = obj["faces"]
 
+
+def shot_in_reconstruction_from_json(reconstruction, key, obj, is_pano_shot=False):
+    """
+    Read shot from a json object and append it to a reconstruction
+    """
+    pose = pose_from_json(obj)
+
+    if is_pano_shot:
+        shot = reconstruction.create_pano_shot(key, obj["camera"], pose)
+    else:
+        shot = reconstruction.create_shot(key, obj["camera"], pose)
+    assign_shot_attributes(obj, shot)
+    return shot
+
+
+def single_shot_from_json(key, obj, camera):
+    """
+    Read shot from a json object
+    """
+    pose = pose_from_json(obj)
+    shot = pymap.Shot(key, camera, pose)
+    assign_shot_attributes(obj, shot)
     return shot
 
 
@@ -129,7 +165,46 @@ def point_from_json(reconstruction, key, obj):
     return point
 
 
-def reconstruction_from_json(obj):
+def rig_camera_from_json(key, obj):
+    """
+    Read a rig cameras from a json object
+    """
+    pose = pygeometry.Pose()
+    pose.rotation = obj["rotation"]
+    pose.translation = obj["translation"]
+    rig_camera = pymap.RigCamera(pose, key)
+    return rig_camera
+
+
+def rig_cameras_from_json(obj):
+    """
+    Read rig cameras from a json object
+    """
+    rig_cameras = {}
+    for key, value in obj.items():
+        rig_cameras[key] = rig_camera_from_json(key, value)
+    return rig_cameras
+
+
+def rig_instance_from_json(reconstruction, key, obj):
+    """
+    Read any rig instance from a json shot object
+    """
+    instance_id = int(key)
+    reconstruction.add_rig_instance(pymap.RigInstance(instance_id))
+
+    pose = pygeometry.Pose()
+    pose.rotation = obj["rotation"]
+    pose.translation = obj["translation"]
+    reconstruction.rig_instances[instance_id].pose = pose
+
+    for shot_id, rig_camera_id in obj["rig_camera_ids"].items():
+        reconstruction.rig_instances[instance_id].add_shot(
+            reconstruction.rig_cameras[rig_camera_id], reconstruction.shots[shot_id]
+        )
+
+
+def reconstruction_from_json(obj: t.Dict[str, t.Any]):
     """
     Read a reconstruction from a json object
     """
@@ -140,9 +215,19 @@ def reconstruction_from_json(obj):
         camera = camera_from_json(key, value)
         reconstruction.add_camera(camera)
 
+    # Extract rig models
+    if "rig_cameras" in obj:
+        for key, value in obj["rig_cameras"].items():
+            reconstruction.add_rig_camera(rig_camera_from_json(key, value))
+
     # Extract shots
     for key, value in obj["shots"].items():
-        shot_from_json(reconstruction, key, value)
+        shot_in_reconstruction_from_json(reconstruction, key, value)
+
+    # Extract rig instances from shots
+    if "rig_instances" in obj:
+        for key, value in obj["rig_instances"].items():
+            rig_instance_from_json(reconstruction, key, value)
 
     # Extract points
     if "points" in obj:
@@ -153,12 +238,14 @@ def reconstruction_from_json(obj):
     if "pano_shots" in obj:
         for key, value in obj["pano_shots"].items():
             is_pano_shot = True
-            shot_from_json(reconstruction, key, value, is_pano_shot)
+            shot_in_reconstruction_from_json(reconstruction, key, value, is_pano_shot)
 
     # Extract main and unit shots
     if "main_shot" in obj:
+        # pyre-fixme[16]: `types.Reconstruction` has no attribute `main_shot`
         reconstruction.main_shot = obj["main_shot"]
     if "unit_shot" in obj:
+        # pyre-fixme[16]: `types.Reconstruction` has no attribute `unit_shot`
         reconstruction.unit_shot = obj["unit_shot"]
 
     # Extract reference topocentric frame
@@ -257,6 +344,29 @@ def camera_to_json(camera):
             "p1": camera.p1,
             "p2": camera.p2,
         }
+    elif camera.projection_type == "simple_radial":
+        return {
+            "projection_type": camera.projection_type,
+            "width": camera.width,
+            "height": camera.height,
+            "focal_x": camera.focal,
+            "focal_y": camera.focal * camera.aspect_ratio,
+            "c_x": camera.principal_point[0],
+            "c_y": camera.principal_point[1],
+            "k1": camera.k1,
+        }
+    elif camera.projection_type == "radial":
+        return {
+            "projection_type": camera.projection_type,
+            "width": camera.width,
+            "height": camera.height,
+            "focal_x": camera.focal,
+            "focal_y": camera.focal * camera.aspect_ratio,
+            "c_x": camera.principal_point[0],
+            "c_y": camera.principal_point[1],
+            "k1": camera.k1,
+            "k2": camera.k2,
+        }
     elif camera.projection_type == "dual":
         return {
             "projection_type": camera.projection_type,
@@ -298,6 +408,28 @@ def shot_to_json(shot):
         obj["covariance"] = shot.covariance.tolist()
     if hasattr(shot, "merge_cc"):
         obj["merge_cc"] = shot.merge_cc
+    return obj
+
+
+def rig_instance_to_json(rig_instance):
+    """
+    Write a rig instance to a json object
+    """
+    return {
+        "translation": list(rig_instance.pose.translation),
+        "rotation": list(rig_instance.pose.rotation),
+        "rig_camera_ids": rig_instance.camera_ids,
+    }
+
+
+def rig_camera_to_json(rig_camera):
+    """
+    Write a rig camera to a json object
+    """
+    obj = {
+        "rotation": list(rig_camera.pose.rotation),
+        "translation": list(rig_camera.pose.translation),
+    }
     return obj
 
 
@@ -361,7 +493,7 @@ def point_to_json(point):
     }
 
 
-def reconstruction_to_json(reconstruction):
+def reconstruction_to_json(reconstruction) -> t.Dict[str, t.Any]:
     """
     Write a reconstruction to a json object
     """
@@ -370,6 +502,16 @@ def reconstruction_to_json(reconstruction):
     # Extract cameras
     for camera in reconstruction.cameras.values():
         obj["cameras"][camera.id] = camera_to_json(camera)
+
+    # Extract rig models
+    if len(reconstruction.rig_cameras):
+        obj["rig_cameras"] = {}
+    for rig_camera in reconstruction.rig_cameras.values():
+        obj["rig_cameras"][rig_camera.id] = rig_camera_to_json(rig_camera)
+    if len(reconstruction.rig_instances):
+        obj["rig_instances"] = {}
+    for rig_instance in reconstruction.rig_instances.values():
+        obj["rig_instances"][rig_instance.id] = rig_instance_to_json(rig_instance)
 
     # Extract shots
     for shot in reconstruction.shots.values():
@@ -404,7 +546,9 @@ def reconstruction_to_json(reconstruction):
     return obj
 
 
-def reconstructions_to_json(reconstructions):
+def reconstructions_to_json(
+    reconstructions: t.Iterable[types.Reconstruction],
+) -> t.List[t.Dict[str, t.Any]]:
     """
     Write all reconstructions to a json object
     """
@@ -421,12 +565,22 @@ def cameras_to_json(cameras):
     return obj
 
 
+def rig_cameras_to_json(rig_cameras):
+    """
+    Write rig cameras to a json object
+    """
+    obj = {}
+    for rig_camera in rig_cameras.values():
+        obj[rig_camera.id] = rig_camera_to_json(rig_camera)
+    return obj
+
+
 def camera_from_vector(
     camera_id: str,
     width: int,
     height: int,
     projection_type: str,
-    parameters: List[float],
+    parameters: t.List[float],
 ) -> pygeometry.Camera:
     """Build a camera from a serialized vector of parameters."""
     if projection_type == "perspective":
@@ -450,6 +604,12 @@ def camera_from_vector(
         camera = pygeometry.Camera.create_fisheye62(
             fx, fy / fx, [cx, cy], [k1, k2, k3, k4, k5, k6, p1, p2]
         )
+    elif projection_type == "radial":
+        fx, fy, cx, cy, k1, k2 = parameters
+        camera = pygeometry.Camera.create_radial(fx, fy / fx, [cx, cy], [k1, k2])
+    elif projection_type == "simple_radial":
+        fx, fy, cx, cy, k1 = parameters
+        camera = pygeometry.Camera.create_simple_radial(fx, fy / fx, [cx, cy], k1)
     elif projection_type == "dual":
         focal, k1, k2, transition = parameters
         camera = pygeometry.Camera.create_dual(transition, focal, k1, k2)
@@ -463,7 +623,7 @@ def camera_from_vector(
     return camera
 
 
-def camera_to_vector(camera: pygeometry.Camera) -> List[float]:
+def camera_to_vector(camera: pygeometry.Camera) -> t.List[float]:
     """Serialize camera parameters to a vector of floats."""
     if camera.projection_type == "perspective":
         parameters = [camera.focal, camera.k1, camera.k2]
@@ -506,6 +666,23 @@ def camera_to_vector(camera: pygeometry.Camera) -> List[float]:
             camera.k6,
             camera.p1,
             camera.p2,
+        ]
+    elif camera.projection_type == "radial":
+        parameters = [
+            camera.focal,
+            camera.focal * camera.aspect_ratio,
+            camera.principal_point[0],
+            camera.principal_point[1],
+            camera.k1,
+            camera.k2,
+        ]
+    elif camera.projection_type == "simple_radial":
+        parameters = [
+            camera.focal,
+            camera.focal * camera.aspect_ratio,
+            camera.principal_point[0],
+            camera.principal_point[1],
+            camera.k1,
         ]
     elif camera.projection_type == "dual":
         parameters = [
@@ -700,21 +877,6 @@ def write_ground_control_points(gcp, fileobj, reference):
     json_dump(obj, fileobj)
 
 
-def mkdir_p(path):
-    """Make a directory including parent directories."""
-    return os.makedirs(path, exist_ok=True)
-
-
-def open_wt(path):
-    """Open a file in text mode for writing utf-8."""
-    return open(path, "w", encoding="utf-8")
-
-
-def open_rt(path):
-    """Open a file in text mode for reading utf-8."""
-    return open(path, "r", encoding="utf-8")
-
-
 def json_dump_kwargs(minify=False):
     if minify:
         indent, separators = None, (",", ":")
@@ -739,338 +901,6 @@ def json_load(fp):
 
 def json_loads(text):
     return json.loads(text)
-
-
-def imread(filename, grayscale=False, unchanged=False, anydepth=False):
-    _, ext = os.path.splitext(filename)
-    if ext.lower() == ".tiff" or ext.lower() == ".tif":
-        return imread_rasterio(filename, grayscale=grayscale, unchanged=unchanged, anydepth=anydepth)
-    else:
-        return imread_cv(filename, grayscale=grayscale, unchanged=unchanged, anydepth=anydepth)
-
-
-def imread_cv(filename, grayscale=False, unchanged=False, anydepth=False):
-    """Load image as an array ignoring EXIF orientation."""
-    if context.OPENCV3:
-        if grayscale:
-            flags = cv2.IMREAD_GRAYSCALE
-        elif unchanged:
-            flags = cv2.IMREAD_UNCHANGED
-        else:
-            flags = cv2.IMREAD_COLOR
-
-        try:
-            flags |= cv2.IMREAD_IGNORE_ORIENTATION
-        except AttributeError:
-            logger.warning(
-                "OpenCV version {} does not support loading images without "
-                "rotating them according to EXIF. Please upgrade OpenCV to "
-                "version 3.2 or newer.".format(cv2.__version__)
-            )
-
-        if anydepth:
-            flags |= cv2.IMREAD_ANYDEPTH
-    else:
-        if grayscale:
-            flags = cv2.CV_LOAD_IMAGE_GRAYSCALE
-        elif unchanged:
-            flags = cv2.CV_LOAD_IMAGE_UNCHANGED
-        else:
-            flags = cv2.CV_LOAD_IMAGE_COLOR
-
-        if anydepth:
-            flags |= cv2.CV_LOAD_IMAGE_ANYDEPTH
-
-    image = cv2.imread(filename, flags)
-
-    if image is None:
-        raise IOError("Unable to load image {}".format(filename))
-
-    if len(image.shape) == 3:
-        image[:, :, :3] = image[:, :, [2, 1, 0]]  # Turn BGR to RGB (or BGRA to RGBA)
-    return image
-
-
-def imread_rasterio(filename, grayscale=False, unchanged=False, anydepth=False):
-    """Load image as an array ignoring EXIF orientation."""
-    if grayscale:
-        raise IOError("Grayscale not implemented")
-
-    with rasterio.open(filename, "r") as f:
-        image = reshape_as_image(f.read())
-
-    if image is None: 
-        raise IOError("Unable to load image {}".format(filename))
-
-    if not anydepth or not unchanged:
-        # Normalize to 8bit
-        min_value = float(image.min())
-        value_range = float(image.max()) - min_value
-        
-        image = image.astype(np.float32)
-        image -= min_value
-        image *= 255.0 / value_range
-        np.around(image, out=image)
-        image[image > 255] = 255
-        image[image < 0] = 0
-        image = image.astype(np.uint8)
-
-    if not unchanged:
-        # Convert to RGB
-        if image.shape[2] == 1:
-            image = np.repeat(image[:, :, :], 3, axis=2)
-        elif image.shape[2] > 3:
-            image = image[:,:,:3]
-
-    return image
-
-
-def imwrite(filename, image):
-    _, ext = os.path.splitext(filename)
-    if ext.lower() == ".tiff" or ext.lower() == ".tif":
-        return imwrite_rasterio(filename, image)
-    else:
-        return imwrite_cv(filename, image)
-
-
-def imwrite_rasterio(filename, image):
-    if len(image.shape) == 2:
-        image = np.repeat(image[:, :, np.newaxis], 1, axis=2)
-
-    profile =  {
-        'width': image.shape[1], 
-        'height': image.shape[0], 
-        'count': image.shape[2],
-        'blockxsize': 512,
-        'blockysize': 512,
-        'compress': 'lzw',
-        'predictor': 3 if image.dtype == np.float32 else 2,
-        'driver': 'GTiff',
-        'dtype': image.dtype,
-        'interleave': 'pixel',
-        'tiled': False
-    }
-
-    with rasterio.open(filename, "w", **profile) as f:
-        for b in range(0, image.shape[2]):
-            f.write(image[:,:,b], b + 1)
-
-
-def imwrite_cv(filename, image):
-    """Write an image to a file"""
-    if len(image.shape) == 3:
-        image[:, :, :3] = image[:, :, [2, 1, 0]]  # Turn RGB to BGR (or RGBA to BGRA)
-    cv2.imwrite(filename, image)
-
-
-def image_size(filename):
-    """Height and width of an image."""
-    try:
-        with Image.open(filename) as img:
-            width, height = img.size
-            return height, width
-    except Exception:
-        # Slower fallback
-        image = imread(filename)
-        return image.shape[:2]
-
-
-# Bundler
-
-
-def export_bundler(
-    image_list, reconstructions, track_manager, bundle_file_path, list_file_path
-):
-    """
-    Generate a reconstruction file that is consistent with Bundler's format
-    """
-
-    mkdir_p(bundle_file_path)
-    mkdir_p(list_file_path)
-
-    for j, reconstruction in enumerate(reconstructions):
-        lines = []
-        lines.append("# Bundle file v0.3")
-        points = reconstruction.points
-        shots = reconstruction.shots
-        num_point = len(points)
-        num_shot = len(image_list)
-        lines.append(" ".join(map(str, [num_shot, num_point])))
-        shots_order = {key: i for i, key in enumerate(image_list)}
-
-        # cameras
-        for shot_id in image_list:
-            if shot_id in shots:
-                shot = shots[shot_id]
-                camera = shot.camera
-                if shot.camera.projection_type == "brown":
-                    # Will aproximate Brown model, not optimal
-                    focal_normalized = camera.focal_x
-                else:
-                    focal_normalized = camera.focal
-                scale = max(camera.width, camera.height)
-                focal = focal_normalized * scale
-                k1 = camera.k1
-                k2 = camera.k2
-                R = shot.pose.get_rotation_matrix()
-                t = np.array(shot.pose.translation)
-                R[1], R[2] = -R[1], -R[2]  # Reverse y and z
-                t[1], t[2] = -t[1], -t[2]
-                lines.append(" ".join(map(str, [focal, k1, k2])))
-                for i in range(3):
-                    lines.append(" ".join(map(str, R[i])))
-                t = " ".join(map(str, t))
-                lines.append(t)
-            else:
-                for _ in range(5):
-                    lines.append("0 0 0")
-
-        # tracks
-        for point in points.values():
-            coord = point.coordinates
-            color = list(map(int, point.color))
-            view_list = track_manager.get_track_observations(point.id)
-            lines.append(" ".join(map(str, coord)))
-            lines.append(" ".join(map(str, color)))
-            view_line = []
-            for shot_key, obs in view_list.items():
-                if shot_key in shots.keys():
-                    v = obs.point
-                    shot_index = shots_order[shot_key]
-                    camera = shots[shot_key].camera
-                    scale = max(camera.width, camera.height)
-                    x = v[0] * scale
-                    y = -v[1] * scale
-                    view_line.append(" ".join(map(str, [shot_index, obs.id, x, y])))
-
-            lines.append(str(len(view_line)) + " " + " ".join(view_line))
-
-        bundle_file = os.path.join(
-            bundle_file_path, "bundle_r" + str(j).zfill(3) + ".out"
-        )
-        with open_wt(bundle_file) as fout:
-            fout.writelines("\n".join(lines) + "\n")
-
-        list_file = os.path.join(list_file_path, "list_r" + str(j).zfill(3) + ".out")
-        with open_wt(list_file) as fout:
-            fout.writelines("\n".join(map(str, image_list)))
-
-
-def import_bundler(
-    data_path, bundle_file, list_file, track_file, reconstruction_file=None
-):
-    """
-    Reconstruction and tracks graph from Bundler's output
-    """
-
-    # Init OpenSfM working folder.
-    mkdir_p(data_path)
-
-    # Copy image list.
-    list_dir = os.path.dirname(list_file)
-    with open_rt(list_file) as fin:
-        lines = fin.read().splitlines()
-    ordered_shots = []
-    image_list = []
-    for line in lines:
-        image_path = os.path.join(list_dir, line.split()[0])
-        rel_to_data = os.path.relpath(image_path, data_path)
-        image_list.append(rel_to_data)
-        ordered_shots.append(os.path.basename(image_path))
-    with open_wt(os.path.join(data_path, "image_list.txt")) as fout:
-        fout.write("\n".join(image_list) + "\n")
-
-    # Check for bundle_file
-    if not bundle_file or not os.path.isfile(bundle_file):
-        return None
-
-    with open_rt(bundle_file) as fin:
-        lines = fin.readlines()
-    offset = 1 if "#" in lines[0] else 0
-
-    # header
-    num_shot, num_point = map(int, lines[offset].split(" "))
-    offset += 1
-
-    # initialization
-    reconstruction = types.Reconstruction()
-
-    # cameras
-    for i in range(num_shot):
-        # Creating a model for each shot.
-        shot_key = ordered_shots[i]
-        focal, k1, k2 = map(float, lines[offset].rstrip("\n").split(" "))
-
-        if focal > 0:
-            im = imread(os.path.join(data_path, image_list[i]))
-            height, width = im.shape[0:2]
-            camera = pygeometry.Camera.create_perspective(
-                focal / max(width, height), k1, k2
-            )
-            camera.id = "camera_" + str(i)
-            camera.width = width
-            camera.height = height
-            reconstruction.add_camera(camera)
-
-            # Shots
-            rline = []
-            for k in range(3):
-                rline += lines[offset + 1 + k].rstrip("\n").split(" ")
-            R = " ".join(rline)
-            t = lines[offset + 4].rstrip("\n").split(" ")
-            R = np.array(list(map(float, R.split()))).reshape(3, 3)
-            t = np.array(list(map(float, t)))
-            R[1], R[2] = -R[1], -R[2]  # Reverse y and z
-            t[1], t[2] = -t[1], -t[2]
-            pose = pygeometry.Pose()
-            pose.set_rotation_matrix(R)
-            pose.translation = t
-
-            reconstruction.create_shot(shot_key, camera.id, pose)
-        else:
-            logger.warning("ignoring failed image {}".format(shot_key))
-        offset += 5
-
-    # tracks
-    track_lines = []
-    for i in range(num_point):
-        coordinates = lines[offset].rstrip("\n").split(" ")
-        color = lines[offset + 1].rstrip("\n").split(" ")
-        point = reconstruction.create_point(i, list(map(float, coordinates)))
-        point.color = list(map(int, color))
-
-        view_line = lines[offset + 2].rstrip("\n").split(" ")
-
-        num_view, view_list = int(view_line[0]), view_line[1:]
-
-        for k in range(num_view):
-            shot_key = ordered_shots[int(view_list[4 * k])]
-            if shot_key in reconstruction.shots:
-                camera = reconstruction.shots[shot_key].camera
-                scale = max(camera.width, camera.height)
-                v = "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}".format(
-                    shot_key,
-                    i,
-                    view_list[4 * k + 1],
-                    float(view_list[4 * k + 2]) / scale,
-                    -float(view_list[4 * k + 3]) / scale,
-                    point.color[0],
-                    point.color[1],
-                    point.color[2],
-                )
-                track_lines.append(v)
-        offset += 3
-
-    # save track file
-    with open_wt(track_file) as fout:
-        fout.writelines("\n".join(track_lines))
-
-    # save reconstruction
-    if reconstruction_file is not None:
-        with open_wt(reconstruction_file) as fout:
-            obj = reconstructions_to_json([reconstruction])
-            json_dump(obj, fout)
-    return reconstruction
 
 
 # PLY
@@ -1104,10 +934,10 @@ def ply_header(count_vertices, with_normals=False, point_num_views=False):
             "property uchar diffuse_green",
             "property uchar diffuse_blue",
         ]
-    
+
     if point_num_views:
         header += ["property uchar views"]
-    
+
     header += ["end_header"]
 
     return header
@@ -1118,32 +948,13 @@ def points_to_ply_string(vertices, point_num_views=False):
     return "\n".join(header + vertices + [""])
 
 
-def ply_to_points(filename):
-    points, normals, colors = [], [], []
-    with open(filename, "r") as fin:
-        line = fin.readline()
-        while "end_header" not in line:
-            line = fin.readline()
-        line = fin.readline()
-        while line != "":
-            line = fin.readline()
-            tokens = line.rstrip().split(" ")
-            if len(tokens) == 6 or len(tokens) == 7:  # XYZ and RGB(A)
-                x, y, z, r, g, b = tokens[0:6]
-                nx, ny, nz = 0, 0, 0
-            elif len(tokens) > 7:  # XYZ + Normal + RGB
-                x, y, z = tokens[0:3]
-                nx, ny, nz = tokens[3:6]
-                r, g, b = tokens[6:9]
-            else:
-                break
-            points.append([float(x), float(y), float(z)])
-            normals.append([float(nx), float(ny), float(nz)])
-            colors.append([int(r), int(g), int(b)])
-    return np.array(points), np.array(normals), np.array(colors)
-
-
-def reconstruction_to_ply(reconstruction, tracks_manager=None, no_cameras=False, no_points=False, point_num_views=False):
+def reconstruction_to_ply(
+    reconstruction,
+    tracks_manager=None,
+    no_cameras=False,
+    no_points=False,
+    point_num_views=False,
+):
     """Export reconstruction points as a PLY string."""
     vertices = []
 
@@ -1156,7 +967,7 @@ def reconstruction_to_ply(reconstruction, tracks_manager=None, no_cameras=False,
 
             if point_num_views and tracks_manager:
                 obs_count = point.number_of_observations()
-                if not obs_count:
+                if obs_count == 0:
                     obs_count = len(tracks_manager.get_track_observations(point.id))
                 s += " {}".format(obs_count)
 
@@ -1177,3 +988,393 @@ def reconstruction_to_ply(reconstruction, tracks_manager=None, no_cameras=False,
                         s += " 0"
                     vertices.append(s)
     return points_to_ply_string(vertices, point_num_views)
+
+
+def point_cloud_from_ply(
+    fp: t.TextIO,
+) -> t.Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Load point cloud from a PLY file."""
+    all_lines = fp.read().splitlines()
+    start = all_lines.index("end_header") + 1
+    lines = all_lines[start:]
+    n = len(lines)
+
+    points = np.zeros((n, 3), dtype=np.float32)
+    normals = np.zeros((n, 3), dtype=np.float32)
+    colors = np.zeros((n, 3), dtype=np.uint8)
+    labels = np.zeros((n,), dtype=np.uint8)
+    detections = np.zeros((n,), dtype=np.uint8)
+
+    for i, row in enumerate(lines):
+        words = row.split()
+        label = int(words[9])
+        points[i] = list(map(float, words[0:3]))
+        normals[i] = list(map(float, words[3:6]))
+        colors[i] = list(map(int, words[6:9]))
+        labels[i] = label
+        if len(words) == 11:
+            detection = int(words[10])
+            detections[i] = detection
+
+    return points, normals, colors, labels, detections
+
+
+def point_cloud_to_ply(
+    points: np.ndarray,
+    normals: np.ndarray,
+    colors: np.ndarray,
+    labels: np.ndarray,
+    detections: np.ndarray,
+    fp: t.TextIO,
+) -> None:
+    """Export depthmap points as a PLY string"""
+    lines = _point_cloud_to_ply_lines(points, normals, colors, labels, detections)
+    fp.writelines(lines)
+
+
+def _point_cloud_to_ply_lines(
+    points: np.ndarray,
+    normals: np.ndarray,
+    colors: np.ndarray,
+    labels: np.ndarray,
+    detections: np.ndarray,
+):
+    yield "ply\n"
+    yield "format ascii 1.0\n"
+    yield "element vertex {}\n".format(len(points))
+    yield "property float x\n"
+    yield "property float y\n"
+    yield "property float z\n"
+    yield "property float nx\n"
+    yield "property float ny\n"
+    yield "property float nz\n"
+    yield "property uchar diffuse_red\n"
+    yield "property uchar diffuse_green\n"
+    yield "property uchar diffuse_blue\n"
+    yield "property uchar class\n"
+    yield "property uchar detection\n"
+    yield "end_header\n"
+
+    template = "{:.4f} {:.4f} {:.4f} {:.3f} {:.3f} {:.3f} {} {} {} {} {}\n"
+    for i in range(len(points)):
+        p, n, c, l, d = points[i], normals[i], colors[i], labels[i], detections[i]
+        yield template.format(
+            p[0],
+            p[1],
+            p[2],
+            n[0],
+            n[1],
+            n[2],
+            int(c[0]),
+            int(c[1]),
+            int(c[2]),
+            int(l),
+            int(d),
+        )
+
+
+# Filesystem interaction methods
+def mkdir_p(path):
+    """Make a directory including parent directories."""
+    return os.makedirs(path, exist_ok=True)
+
+
+def open_wt(path):
+    """Open a file in text mode for writing utf-8."""
+    return open(path, "w", encoding="utf-8")
+
+
+def open_rt(path):
+    """Open a file in text mode for reading utf-8."""
+    return open(path, "r", encoding="utf-8")
+
+
+def imread(path, grayscale=False, unchanged=False, anydepth=False):
+    _, ext = os.path.splitext(path)
+    if ext.lower() == ".tiff" or ext.lower() == ".tif":
+        return imread_rasterio(path, grayscale, unchanged, anydepth)
+    else:
+        with open(path, "rb") as fb:
+            return imread_from_fileobject(fb, grayscale, unchanged, anydepth)
+
+
+def imread_from_fileobject(fb, grayscale=False, unchanged=False, anydepth=False):
+    """Load image as an array ignoring EXIF orientation."""
+    if context.OPENCV3:
+        if grayscale:
+            flags = cv2.IMREAD_GRAYSCALE
+        elif unchanged:
+            flags = cv2.IMREAD_UNCHANGED
+        else:
+            flags = cv2.IMREAD_COLOR
+
+        try:
+            flags |= cv2.IMREAD_IGNORE_ORIENTATION
+        except AttributeError:
+            logger.warning(
+                "OpenCV version {} does not support loading images without "
+                "rotating them according to EXIF. Please upgrade OpenCV to "
+                "version 3.2 or newer.".format(cv2.__version__)
+            )
+
+        if anydepth:
+            flags |= cv2.IMREAD_ANYDEPTH
+    else:
+        if grayscale:
+            flags = cv2.CV_LOAD_IMAGE_GRAYSCALE
+        elif unchanged:
+            flags = cv2.CV_LOAD_IMAGE_UNCHANGED
+        else:
+            flags = cv2.CV_LOAD_IMAGE_COLOR
+
+        if anydepth:
+            flags |= cv2.CV_LOAD_IMAGE_ANYDEPTH
+
+    im_buffer = np.asarray(bytearray(fb.read()), dtype=np.uint8)
+    image = cv2.imdecode(im_buffer, flags)
+
+    if image is None:
+        raise IOError("Unable to load image")
+
+    if len(image.shape) == 3:
+        image[:, :, :3] = image[:, :, [2, 1, 0]]  # Turn BGR to RGB (or BGRA to RGBA)
+    return image
+
+
+def imread_rasterio(path, grayscale=False, unchanged=False, anydepth=False):
+    """Load image as an array ignoring EXIF orientation."""
+    if grayscale:
+        raise IOError("Grayscale not implemented")
+
+    with rasterio.open(path, "r") as f:
+        image = reshape_as_image(f.read())
+
+    if image is None: 
+        raise IOError("Unable to load image {}".format(path))
+
+    if not anydepth or not unchanged:
+        # Normalize to 8bit
+        min_value = float(image.min())
+        value_range = float(image.max()) - min_value
+        
+        image = image.astype(np.float32)
+        image -= min_value
+        image *= 255.0 / value_range
+        np.around(image, out=image)
+        image[image > 255] = 255
+        image[image < 0] = 0
+        image = image.astype(np.uint8)
+
+    if not unchanged:
+        # Convert to RGB
+        if image.shape[2] == 1:
+            image = np.repeat(image[:, :, :], 3, axis=2)
+        elif image.shape[2] > 3:
+            image = image[:,:,:3]
+
+    return image
+
+
+def imwrite(path, image: np.ndarray):
+    _, ext = os.path.splitext(path)
+    if ext.lower() == ".tiff" or ext.lower() == ".tif":
+        return imwrite_rasterio(path, image)
+    else:
+        with open(path, "wb") as fwb:
+            return imwrite_from_fileobject(fwb, image, path)
+
+
+def imwrite_from_fileobject(fwb, image: np.ndarray, ext: str):
+    """Write an image to a file object"""
+    if len(image.shape) == 3:
+        image[:, :, :3] = image[:, :, [2, 1, 0]]  # Turn RGB to BGR (or RGBA to BGRA)
+    _, im_buffer = cv2.imencode(ext, image)
+    fwb.write(im_buffer)
+
+
+def imwrite_rasterio(path, image: np.ndarray):
+    if len(image.shape) == 2:
+        image = np.repeat(image[:, :, np.newaxis], 1, axis=2)
+
+    profile =  {
+        'width': image.shape[1], 
+        'height': image.shape[0], 
+        'count': image.shape[2],
+        'blockxsize': 512,
+        'blockysize': 512,
+        'compress': 'lzw',
+        'predictor': 3 if image.dtype == np.float32 else 2,
+        'driver': 'GTiff',
+        'dtype': image.dtype,
+        'interleave': 'pixel',
+        'tiled': False
+    }
+
+    with rasterio.open(path, "w", **profile) as f:
+        for b in range(0, image.shape[2]):
+            f.write(image[:,:,b], b + 1)
+
+
+def image_size_from_fileobject(fb):
+    """Height and width of an image."""
+    try:
+        with Image.open(fb) as img:
+            width, height = img.size
+            return height, width
+    except Exception:
+        # Slower fallback
+        image = imread(fb)
+        return image.shape[:2]
+
+
+def image_size(path):
+    """Height and width of an image."""
+    with open(path, "rb") as fb:
+        return image_size_from_fileobject(fb)
+
+
+# IO Filesystem
+class IoFilesystemBase(ABC):
+    @classmethod
+    @abstractmethod
+    def exists(cls, path):
+        pass
+
+    @classmethod
+    def ls(cls, path):
+        pass
+
+    @classmethod
+    @abstractmethod
+    def isfile(cls, path):
+        pass
+
+    @classmethod
+    @abstractmethod
+    def isdir(cls, path):
+        pass
+
+    @classmethod
+    def rm_if_exist(cls, filename):
+        pass
+
+    @classmethod
+    def symlink(cls, src_path, dst_path, **kwargs):
+        pass
+
+    @classmethod
+    @abstractmethod
+    def open(cls, *args, **kwargs):
+        pass
+
+    @classmethod
+    @abstractmethod
+    def open_wt(cls, path):
+        pass
+
+    @classmethod
+    @abstractmethod
+    def open_rt(cls, path):
+        pass
+
+    @classmethod
+    @abstractmethod
+    def mkdir_p(cls, path):
+        pass
+
+    @classmethod
+    @abstractmethod
+    def imwrite(cls, filename, image):
+        pass
+
+    @classmethod
+    @abstractmethod
+    def imread(cls, path, grayscale=False, unchanged=False, anydepth=False):
+        pass
+
+    @classmethod
+    @abstractmethod
+    def image_size(cls, filename):
+        pass
+
+    @classmethod
+    @abstractmethod
+    def timestamp(cls, path):
+        pass
+
+
+class IoFilesystemDefault(IoFilesystemBase):
+    def __init__(self):
+        self.type = "default"
+
+    @classmethod
+    def exists(cls, path):
+        return os.path.exists(path)
+
+    @classmethod
+    def ls(cls, path):
+        return os.listdir(path)
+
+    @classmethod
+    def isfile(cls, path):
+        return os.path.isfile(path)
+
+    @classmethod
+    def isdir(cls, path):
+        return os.path.isdir(path)
+
+    @classmethod
+    def rm_if_exist(cls, filename):
+        if os.path.islink(filename):
+            os.unlink(filename)
+        if os.path.exists(filename):
+            os.remove(filename)
+
+    @classmethod
+    def symlink(cls, src_path, dst_path, **kwargs):
+        if sys.platform == 'win32':
+            raise Exception("symlinks are not supported on win32")
+        os.symlink(src_path, dst_path, **kwargs)
+
+    @classmethod
+    def open(cls, *args, **kwargs):
+        return open(*args, **kwargs)
+
+    @classmethod
+    def open_wt(cls, path):
+        return cls.open(path, "w", encoding="utf-8")
+
+    @classmethod
+    def open_rt(cls, path):
+        return cls.open(path, "r", encoding="utf-8")
+
+    @classmethod
+    def mkdir_p(cls, path):
+        return os.makedirs(path, exist_ok=True)
+
+    @classmethod
+    def imread(cls, path, grayscale=False, unchanged=False, anydepth=False):
+        _, ext = os.path.splitext(path)
+        if ext.lower() == ".tiff" or ext.lower() == ".tif":
+            return imread_rasterio(path, grayscale, unchanged, anydepth)
+        else:
+            with cls.open(path, "rb") as fb:
+                return imread_from_fileobject(fb, grayscale, unchanged, anydepth)
+
+    @classmethod
+    def imwrite(cls, path, image):
+        _, ext = os.path.splitext(path)
+        if ext.lower() == ".tiff" or ext.lower() == ".tif":
+            imwrite_rasterio(path, image)
+        else:
+            with cls.open(path, "wb") as fwb:
+                imwrite_from_fileobject(fwb, image, path)
+
+    @classmethod
+    def image_size(cls, path):
+        with cls.open(path, "rb") as fb:
+            return image_size_from_fileobject(fb)
+
+    @classmethod
+    def timestamp(cls, path):
+        return os.path.getmtime(path)

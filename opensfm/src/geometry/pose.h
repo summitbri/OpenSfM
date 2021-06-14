@@ -1,5 +1,7 @@
 #pragma once
 #include <foundation/types.h>
+#include <geometry/transformations_functions.h>
+
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 #include <iostream>
@@ -12,6 +14,7 @@ class Pose {
     Mat4d T_cw = Mat4d::Identity();
     SetFromWorldToCamera(T_cw);
   }
+  virtual ~Pose() = default;
 
   Pose(const Vec3d& R, const Vec3d& t = Vec3d::Zero()) {
     Mat4d T_cw = Mat4d::Identity();
@@ -50,22 +53,22 @@ class Pose {
   };
 
   Vec3d GetOrigin() const { return TranslationCameraToWorld(); }
-  void SetOrigin(const Vec3d& origin) {
+  virtual void SetOrigin(const Vec3d& origin) {
     SetWorldToCamTranslation(-RotationWorldToCamera() * origin);
   }
 
-  void SetFromWorldToCamera(const Mat4d& world_to_camera) {
+  virtual void SetFromWorldToCamera(const Mat4d& world_to_camera) {
     const Mat3d R_cw =
         world_to_camera.block<3, 3>(0, 0);  // avoid ambiguous compile error
     SetFromWorldToCamera(R_cw, world_to_camera.block<3, 1>(0, 3));
   }
-  void SetFromCameraToWorld(const Mat4d& camera_to_world) {
+  virtual void SetFromCameraToWorld(const Mat4d& camera_to_world) {
     const Mat3d R_wc =
         camera_to_world.block<3, 3>(0, 0);  // avoid ambiguous compile error
     SetFromCameraToWorld(R_wc, camera_to_world.block<3, 1>(0, 3));
   }
 
-  void SetFromWorldToCamera(const Mat3d& R_cw, const Vec3d& t_cw) {
+  virtual void SetFromWorldToCamera(const Mat3d& R_cw, const Vec3d& t_cw) {
     world_to_cam_.setIdentity();
     world_to_cam_.block<3, 3>(0, 0) = R_cw;
     world_to_cam_.block<3, 1>(0, 3) = t_cw;
@@ -73,7 +76,7 @@ class Pose {
     UpdateMinRotations();
   }
 
-  void SetFromCameraToWorld(const Mat3d& R_wc, const Vec3d& t_wc) {
+  virtual void SetFromCameraToWorld(const Mat3d& R_wc, const Vec3d& t_wc) {
     cam_to_world_.setIdentity();
     cam_to_world_.block<3, 3>(0, 0) = R_wc;
     cam_to_world_.block<3, 1>(0, 3) = t_wc;
@@ -81,29 +84,29 @@ class Pose {
     UpdateMinRotations();
   }
 
-  void SetWorldToCamRotation(const Vec3d& r_cw) {
-    Mat3d R_cw = VectorToRotationMatrix(r_cw);
+  virtual void SetWorldToCamRotation(const Vec3d& r_cw) {
+    Mat3d R_cw = geometry::VectorToRotationMatrix(r_cw);
     world_to_cam_.block<3, 3>(0, 0) = R_cw;
     cam_to_world_.block<3, 3>(0, 0) = R_cw.transpose();
     UpdateMinRotations();
   }
 
-  void SetWorldToCamTranslation(const Vec3d& t_cw) {
+  virtual void SetWorldToCamTranslation(const Vec3d& t_cw) {
     world_to_cam_.block<3, 1>(0, 3) = t_cw;
     cam_to_world_.block<3, 1>(0, 3) = world_to_cam_.inverse().block<3, 1>(0, 3);
   }
 
-  void SetWorldToCamRotationMatrix(const Mat3d& R_cw) {
+  virtual void SetWorldToCamRotationMatrix(const Mat3d& R_cw) {
     world_to_cam_.block<3, 3>(0, 0) = R_cw;
     cam_to_world_.block<3, 3>(0, 0) = R_cw.transpose();
     UpdateMinRotations();
   }
-  void SetFromCameraToWorld(const Vec3d& r_wc, const Vec3d& t_wc) {
-    const Mat3d R_wc = VectorToRotationMatrix(r_wc);
+  virtual void SetFromCameraToWorld(const Vec3d& r_wc, const Vec3d& t_wc) {
+    const Mat3d R_wc = geometry::VectorToRotationMatrix(r_wc);
     SetFromCameraToWorld(R_wc, t_wc);
   }
-  void SetFromWorldToCamera(const Vec3d& r_cw, const Vec3d& t_cw) {
-    const Mat3d R_cw = VectorToRotationMatrix(r_cw);
+  virtual void SetFromWorldToCamera(const Vec3d& r_cw, const Vec3d& t_cw) {
+    const Mat3d R_cw = geometry::VectorToRotationMatrix(r_cw);
     SetFromWorldToCamera(R_cw, t_cw);
   }
 
@@ -155,29 +158,49 @@ class Pose {
     return Pose(R, t);
   }
 
+  Pose Inverse() const {
+    /*
+      Computes the inverse transformation such as :
+        pose.compose(pose.inverse()) == Id
+    */
+    Pose invpose;
+    invpose.SetFromWorldToCamera(cam_to_world_);
+    return invpose;
+  }
+
  private:
   Mat4d cam_to_world_;  // [R',-R't] cam to world
   Mat4d world_to_cam_;  // [R, t] world to cam
   Vec3d r_min_cam_to_world_;
   Vec3d r_min_world_to_cam_;
 
-  static Mat3d VectorToRotationMatrix(const Vec3d& r) {
-    const auto n = r.norm();
-    if (n == 0)  // avoid division by 0
-    {
-      return Eigen::AngleAxisd(0, r).toRotationMatrix();
-    } else {
-      return Eigen::AngleAxisd(n, r / n).toRotationMatrix();
-    }
-  }
-  static Vec3d RotationMatrixToVector(const Mat3d& R) {
-    Eigen::AngleAxisd tmp(R);
-    return tmp.axis() * tmp.angle();
-  }
   void UpdateMinRotations() {
     r_min_cam_to_world_ =
-        RotationMatrixToVector(cam_to_world_.block<3, 3>(0, 0));
+        geometry::RotationMatrixToVector(cam_to_world_.block<3, 3>(0, 0));
     r_min_world_to_cam_ = -r_min_cam_to_world_;
   }
 };
+
+#define THROW_POSE_IMMUTABLE \
+  override final { throw std::runtime_error("Cannot set an immutable pose"); }
+
+class PoseImmutable : public geometry::Pose {
+ public:
+  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+  explicit PoseImmutable(const geometry::Pose& pose) : geometry::Pose(pose) {}
+
+  // clang-format off
+  void SetOrigin(const Vec3d&) THROW_POSE_IMMUTABLE
+  void SetFromWorldToCamera(const Mat4d&) THROW_POSE_IMMUTABLE
+  void SetFromCameraToWorld(const Mat4d&)  THROW_POSE_IMMUTABLE
+  void SetFromWorldToCamera(const Mat3d&, const Vec3d&) THROW_POSE_IMMUTABLE
+  void SetFromCameraToWorld(const Mat3d&, const Vec3d&) THROW_POSE_IMMUTABLE
+  void SetWorldToCamRotation(const Vec3d&) THROW_POSE_IMMUTABLE
+  void SetWorldToCamTranslation(const Vec3d&)  THROW_POSE_IMMUTABLE
+  void SetWorldToCamRotationMatrix(const Mat3d&)  THROW_POSE_IMMUTABLE
+  void SetFromCameraToWorld(const Vec3d&, const Vec3d&)  THROW_POSE_IMMUTABLE
+  void SetFromWorldToCamera(const Vec3d&, const Vec3d&)  THROW_POSE_IMMUTABLE
+  // clang-format on
+};
+
 }  // namespace geometry

@@ -1,5 +1,4 @@
 import logging
-from collections import defaultdict
 from timeit import default_timer as timer
 
 import cv2
@@ -12,6 +11,8 @@ from opensfm import pairs_selection
 from opensfm import pyfeatures
 from opensfm import pygeometry
 from opensfm.sift_gpu import get_sift_gpu
+from opensfm.dataset import DataSetBase
+
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +20,7 @@ def clear_cache():
     feature_loader.instance.clear_cache()
 
 
-def match_images(data, config_override, ref_images, cand_images):
+def match_images(data: DataSetBase, config_override, ref_images, cand_images):
     """Perform pair matchings between two sets of images.
 
     It will do matching for each pair (i, j), i being in
@@ -44,25 +45,15 @@ def match_images(data, config_override, ref_images, cand_images):
 
     # Match them !
     return (
-        match_images_with_pairs(data, config_override, exifs, ref_images, pairs),
+        match_images_with_pairs(data, config_override, exifs, pairs),
         preport,
     )
 
 
-def match_images_with_pairs(data, config_override, exifs, ref_images, pairs):
+def match_images_with_pairs(data: DataSetBase, config_override, exifs, pairs):
     """ Perform pair matchings given pairs. """
-
-    # Store per each image in ref for processing
-    per_image = {im: [] for im in ref_images}
-    for im1, im2 in pairs:
-        per_image[im1].append(im2)
-
-    ctx = Context()
-    ctx.data = data
-    ctx.config_override = config_override
-    ctx.cameras = ctx.data.load_camera_models()
-    ctx.exifs = exifs
-    args = list(match_arguments(per_image, ctx))
+    cameras = data.load_camera_models()
+    args = list(match_arguments(pairs, data, config_override, cameras, exifs))
 
     # Perform all pair matchings in parallel
     start = timer()
@@ -75,11 +66,9 @@ def match_images_with_pairs(data, config_override, exifs, ref_images, pairs):
     logger.info("Computing pair matching with %d processes" % processes)
     matches = context.parallel_map(match_unwrap_args, args, processes, jobs_per_process)
     logger.info(
-        "Matched {} pairs for {} ref_images {} "
-        "in {} seconds ({} seconds/pair).".format(
+        "Matched {} pairs {} in {} seconds ({} seconds/pair).".format(
             len(pairs),
-            len(ref_images),
-            log_projection_types(pairs, ctx.exifs, ctx.cameras),
+            log_projection_types(pairs, exifs, cameras),
             timer() - start,
             (timer() - start) / len(pairs) if pairs else 0,
         )
@@ -87,10 +76,8 @@ def match_images_with_pairs(data, config_override, exifs, ref_images, pairs):
 
     # Index results per pair
     resulting_pairs = {}
-    for im1, im1_matches in matches:
-        for im2, m in im1_matches.items():
-            resulting_pairs[im1, im2] = m
-
+    for im1, im2, m in matches:
+        resulting_pairs[im1, im2] = m
     return resulting_pairs
 
 
@@ -121,28 +108,32 @@ def log_projection_types(pairs, exifs, cameras):
     return output[:-2] + ")"
 
 
-def save_matches(data, images_ref, matched_pairs):
+def save_matches(data: DataSetBase, images_ref, matched_pairs):
     """Given pairwise matches (image 1, image 2) - > matches,
     save them such as only {image E images_ref} will store the matches.
     """
-
+    images_ref_set = set(images_ref)
     matches_per_im1 = {im: {} for im in images_ref}
     for (im1, im2), m in matched_pairs.items():
-        matches_per_im1[im1][im2] = m
+        if im1 in images_ref_set:
+            matches_per_im1[im1][im2] = m
+        elif im2 in images_ref_set:
+            matches_per_im1[im2][im1] = m
+        else:
+            raise RuntimeError(
+                "Couldn't save matches for {}. No image found in images_ref.".format(
+                    (im1, im2)
+                )
+            )
 
     for im1, im1_matches in matches_per_im1.items():
         data.save_matches(im1, im1_matches)
 
 
-class Context:
-    pass
-
-
-def match_arguments(pairs, ctx):
+def match_arguments(pairs, data: DataSetBase, config_override, cameras, exifs):
     """ Generate arguments for parralel processing of pair matching """
-    pairs = sorted(pairs.items(), key=lambda x: -len(x[1]))
-    for im, candidates in pairs:
-        yield im, candidates, ctx
+    for im1, im2 in pairs:
+        yield im1, im2, cameras, exifs, data, config_override
 
 
 def match_unwrap_args(args):
@@ -151,87 +142,222 @@ def match_unwrap_args(args):
     Compute all pair matchings of a given image and save them.
     """
     log.setup()
-    im1, candidates, ctx = args
-
-    im1_matches = {}
-    camera1 = ctx.cameras[ctx.exifs[im1]["camera"]]
-
-    for im2 in candidates:
-        camera2 = ctx.cameras[ctx.exifs[im2]["camera"]]
-        im1_matches[im2] = match(
-            im1, im2, camera1, camera2, ctx.data, ctx.config_override
-        )
-
-    num_matches = sum(1 for m in im1_matches.values() if len(m) > 0)
-    logger.debug(
-        "Image {} matches: {} out of {}".format(im1, num_matches, len(candidates))
-    )
-
-    return im1, im1_matches
+    im1 = args[0]
+    im2 = args[1]
+    cameras = args[2]
+    exifs = args[3]
+    data: DataSetBase = args[4]
+    config_override = args[5]
+    camera1 = cameras[exifs[im1]["camera"]]
+    camera2 = cameras[exifs[im2]["camera"]]
+    matches = match(im1, im2, camera1, camera2, data, config_override)
+    return im1, im2, matches
 
 
-def match(im1, im2, camera1, camera2, data, config_override):
-    """Perform matching for a pair of images."""
-    # Apply mask to features if any
-    time_start = timer()
-    p1, f1, _ = feature_loader.instance.load_points_features_colors(
-        data, im1, masked=True
-    )
-    p2, f2, _ = feature_loader.instance.load_points_features_colors(
-        data, im2, masked=True
-    )
-
-    if p1 is None or len(p1) < 2 or p2 is None or len(p2) < 2:
-        return []
-
+def match_descriptors(im1, im2, camera1, camera2, data, config_override):
+    """Perform descriptor matching for a pair of images."""
+    # Override parameters
     overriden_config = data.config.copy()
     overriden_config.update(config_override)
 
+    # Run descriptor matching
+    time_start = timer()
+    _, _, matches = _match_descriptors_impl(
+        im1, im2, camera1, camera2, data, overriden_config
+    )
+    time_2d_matching = timer() - time_start
+
+    # From indexes in filtered sets, to indexes in original sets of features
+    m1 = feature_loader.instance.load_mask(data, im1)
+    m2 = feature_loader.instance.load_mask(data, im2)
+    if m1 is not None and m2 is not None:
+        matches_unfiltered = unfilter_matches(matches, m1, m2)
+
+    matcher_type = overriden_config["matcher_type"].upper()
+    symmetric = "symmetric" if overriden_config["symmetric_matching"] else "one-way"
+    logger.debug(
+        "Matching {} and {}.  Matcher: {} ({}) "
+        "T-desc: {:1.3f} Matches: {}".format(
+            im1,
+            im2,
+            matcher_type,
+            symmetric,
+            time_2d_matching,
+            len(matches_unfiltered),
+        )
+    )
+    return np.array(matches_unfiltered, dtype=int)
+
+
+def _match_descriptors_impl(im1, im2, camera1, camera2, data, overriden_config):
+    """Perform descriptor matching for a pair of images. It also apply static objects removal."""
+    # Will apply mask to features if any
+    features_data1 = feature_loader.instance.load_all_data(data, im1, masked=True)
+    features_data2 = feature_loader.instance.load_all_data(data, im2, masked=True)
+    if (
+        features_data1 is None
+        or len(features_data1.points) < 2
+        or features_data2 is None
+        or len(features_data2.points) < 2
+    ):
+        return [], [], []
+
     matcher_type = overriden_config["matcher_type"].upper()
     symmetric_matching = overriden_config["symmetric_matching"]
-
     if matcher_type == "WORDS":
-        w1 = feature_loader.instance.load_words(data, im1, masked=True)
-        w2 = feature_loader.instance.load_words(data, im2, masked=True)
-        if w1 is None or w2 is None:
-            return []
+        words1 = feature_loader.instance.load_words(data, im1, masked=True)
+        words2 = feature_loader.instance.load_words(data, im2, masked=True)
+        if words1 is None or words2 is None:
+            return [], [], []
 
         if symmetric_matching:
-            matches = match_words_symmetric(f1, w1, f2, w2, overriden_config)
+            matches = match_words_symmetric(
+                features_data1.descriptors,
+                words1,
+                features_data2.descriptors,
+                words2,
+                overriden_config,
+            )
         else:
-            matches = match_words(f1, w1, f2, w2, overriden_config)
+            matches = match_words(
+                features_data1.descriptors,
+                words1,
+                features_data2.descriptors,
+                words2,
+                overriden_config,
+            )
     elif matcher_type == "FLANN":
-        fi1, i1 = feature_loader.instance.load_features_index(data, im1, masked=True)
+        feat_data_index1, index1 = feature_loader.instance.load_features_index(
+            data, im1, masked=True
+        )
         if symmetric_matching:
-            fi2, i2 = feature_loader.instance.load_features_index(
+            feat_data_index2, index2 = feature_loader.instance.load_features_index(
                 data, im2, masked=True
             )
-            matches = match_flann_symmetric(fi1, i1, fi2, i2, overriden_config)
+            matches = match_flann_symmetric(
+                feat_data_index1.descriptors,
+                index1,
+                feat_data_index2.descriptors,
+                index2,
+                overriden_config,
+            )
         else:
-            matches = match_flann(i1, f2, overriden_config)
+            matches = match_flann(index1, features_data2.descriptors, overriden_config)
     elif matcher_type == "BRUTEFORCE":
         if symmetric_matching:
-            matches = match_brute_force_symmetric(f1, f2, overriden_config)
+            matches = match_brute_force_symmetric(
+                features_data1.descriptors, features_data2.descriptors, overriden_config
+            )
         else:
-            matches = match_brute_force(f1, f2, overriden_config)
+            matches = match_brute_force(
+                features_data1.descriptors, features_data2.descriptors, overriden_config
+            )
     elif matcher_type == 'SIFT_GPU':
         k1 = data.load_gpu_features(im1)
         k2 = data.load_gpu_features(im2)
         if k1 is None or k2 is None:
-            k1 = feature_loader.instance.create_gpu_keypoints_from_features(p1, f1)
-            k2 = feature_loader.instance.create_gpu_keypoints_from_features(p2, f2)
+            k1 = feature_loader.instance.create_gpu_keypoints_from_features(p1, features_data1.descriptors)
+            k2 = feature_loader.instance.create_gpu_keypoints_from_features(p2, features_data2.descriptors)
         matches = get_sift_gpu().match_images(k1, k2)
     else:
         raise ValueError("Invalid matcher_type: {}".format(matcher_type))
 
     # Adhoc filters
     if overriden_config["matching_use_filters"]:
-        matches = apply_adhoc_filters(data, matches, im1, camera1, p1, im2, camera2, p2)
+        matches = apply_adhoc_filters(
+            data,
+            matches,
+            im1,
+            camera1,
+            features_data1.points,
+            im2,
+            camera2,
+            features_data2.points,
+        )
+    return features_data1.points, features_data2.points, np.array(matches, dtype=int)
 
-    matches = np.array(matches, dtype=int)
-    time_2d_matching = timer() - time_start
+
+def match_robust(im1, im2, matches, camera1, camera2, data, config_override):
+    """ Perform robust geometry matching on a set of matched descriptors indexes. """
+    # Override parameters
+    overriden_config = data.config.copy()
+    overriden_config.update(config_override)
+
+    # Will apply mask to features if any
+    features_data1 = feature_loader.instance.load_all_data(data, im1, masked=True)
+    features_data2 = feature_loader.instance.load_all_data(data, im2, masked=True)
+    if (
+        features_data1 is None
+        or len(features_data1.points) < 2
+        or features_data2 is None
+        or len(features_data2.points) < 2
+    ):
+        return []
+
+    # Run robust matching
+    np_matches = np.array(matches, dtype=int)
     t = timer()
+    rmatches = _match_robust_impl(
+        im1,
+        im2,
+        features_data1.points,
+        features_data2.points,
+        np_matches,
+        camera1,
+        camera2,
+        data,
+        overriden_config,
+    )
+    time_robust_matching = timer() - t
 
+    # From indexes in filtered sets, to indexes in original sets of features
+    m1 = feature_loader.instance.load_mask(data, im1)
+    m2 = feature_loader.instance.load_mask(data, im2)
+    if m1 is not None and m2 is not None:
+        rmatches_unfiltered = unfilter_matches(rmatches, m1, m2)
+
+    robust_matching_min_match = overriden_config["robust_matching_min_match"]
+    logger.debug(
+        "Matching {} and {}. T-robust: {:1.3f} "
+        "Matches: {} Robust: {} Success: {}".format(
+            im1,
+            im2,
+            time_robust_matching,
+            len(matches),
+            len(rmatches_unfiltered),
+            len(rmatches_unfiltered) >= robust_matching_min_match,
+        )
+    )
+
+    if len(rmatches_unfiltered) < robust_matching_min_match:
+        return []
+    return np.array(rmatches_unfiltered, dtype=int)
+
+
+def _match_robust_impl(
+    im1, im2, p1, p2, matches, camera1, camera2, data, overriden_config
+):
+    """ Perform robust geometry matching on a set of matched descriptors indexes. """
+    # robust matching
+    rmatches = robust_match(p1, p2, camera1, camera2, matches, overriden_config)
+    rmatches = np.array([[a, b] for a, b in rmatches])
+    return rmatches
+
+
+def match(im1, im2, camera1, camera2, data, config_override):
+    """Perform full matching (descriptor+robust) for a pair of images."""
+    # Override parameters
+    overriden_config = data.config.copy()
+    overriden_config.update(config_override)
+
+    # Run descriptor matching
+    time_start = timer()
+    p1, p2, matches = _match_descriptors_impl(
+        im1, im2, camera1, camera2, data, overriden_config
+    )
+    time_2d_matching = timer() - time_start
+
+    matcher_type = overriden_config["matcher_type"].upper()
     symmetric = "symmetric" if overriden_config["symmetric_matching"] else "one-way"
     robust_matching_min_match = overriden_config["robust_matching_min_match"]
     if len(matches) < robust_matching_min_match:
@@ -243,17 +369,20 @@ def match(im1, im2, camera1, camera2, data, config_override):
         )
         return []
 
-    # robust matching
-    rmatches = robust_match(p1, p2, camera1, camera2, matches, overriden_config)
-    rmatches = np.array([[a, b] for a, b in rmatches])
+    # Run robust matching
+    t = timer()
+    rmatches = _match_robust_impl(
+        im1, im2, p1, p2, matches, camera1, camera2, data, overriden_config
+    )
     time_robust_matching = timer() - t
-    time_total = timer() - time_start
 
     # From indexes in filtered sets, to indexes in original sets of features
     m1 = feature_loader.instance.load_mask(data, im1)
     m2 = feature_loader.instance.load_mask(data, im2)
     if m1 is not None and m2 is not None:
         rmatches = unfilter_matches(rmatches, m1, m2)
+
+    time_total = timer() - time_start
 
     logger.debug(
         "Matching {} and {}.  Matcher: {} ({}) "
@@ -274,7 +403,6 @@ def match(im1, im2, camera1, camera2, data, config_override):
 
     if len(rmatches) < robust_matching_min_match:
         return []
-
     return np.array(rmatches, dtype=int)
 
 
@@ -498,7 +626,7 @@ def unfilter_matches(matches, m1, m2):
     return np.array([(i1[match[0]], i2[match[1]]) for match in matches])
 
 
-def apply_adhoc_filters(data, matches, im1, camera1, p1, im2, camera2, p2):
+def apply_adhoc_filters(data: DataSetBase, matches, im1, camera1, p1, im2, camera2, p2):
     """Apply a set of filters functions defined further below
     for removing static data in images.
 
@@ -552,7 +680,7 @@ def _not_on_pano_poles_matches(p1, p2, matches, camera1, camera2):
         return matches
 
 
-def _not_on_vermont_watermark(p1, p2, matches, im1, im2, data):
+def _not_on_vermont_watermark(p1, p2, matches, im1, im2, data: DataSetBase):
     """Filter Vermont images watermark."""
     meta1 = data.load_exif(im1)
     meta2 = data.load_exif(im2)
@@ -573,7 +701,7 @@ def _vermont_valid_mask(p):
     return p[1] > -0.255
 
 
-def _not_on_blackvue_watermark(p1, p2, matches, im1, im2, data):
+def _not_on_blackvue_watermark(p1, p2, matches, im1, im2, data: DataSetBase):
     """Filter Blackvue's watermark."""
     meta1 = data.load_exif(im1)
     meta2 = data.load_exif(im2)

@@ -5,7 +5,6 @@ import math
 
 import numpy as np
 from opensfm import multiview
-from opensfm import pygeometry
 from opensfm import transformations as tf
 
 logger = logging.getLogger(__name__)
@@ -13,10 +12,21 @@ logger = logging.getLogger(__name__)
 
 def align_reconstruction(reconstruction, gcp, config):
     """Align a reconstruction with GPS and GCP data."""
-    res = align_reconstruction_similarity(reconstruction, gcp, config)
+    use_scale = len(reconstruction.rig_instances) < 1
+    res = align_reconstruction_similarity(reconstruction, gcp, config, use_scale)
     if res:
         s, A, b = res
         apply_similarity(reconstruction, s, A, b)
+
+
+def apply_similarity_pose(pose, s, A, b):
+    """ Apply a similarity (y = s A x + b) to an object having a 'pose' member. """
+    R = pose.get_rotation_matrix()
+    t = np.array(pose.translation)
+    Rp = R.dot(A.T)
+    tp = -Rp.dot(b) + s * t
+    pose.set_rotation_matrix(Rp)
+    pose.translation = list(tp)
 
 
 def apply_similarity(reconstruction, s, A, b):
@@ -34,15 +44,16 @@ def apply_similarity(reconstruction, s, A, b):
 
     # Align cameras.
     for shot in reconstruction.shots.values():
-        R = shot.pose.get_rotation_matrix()
-        t = np.array(shot.pose.translation)
-        Rp = R.dot(A.T)
-        tp = -Rp.dot(b) + s * t
-        shot.pose.set_rotation_matrix(Rp)
-        shot.pose.translation = list(tp)
+        if shot.is_in_rig():
+            continue
+        apply_similarity_pose(shot.pose, s, A, b)
+
+    # Align rig instances
+    for rig_instance in reconstruction.rig_instances.values():
+        apply_similarity_pose(rig_instance.pose, s, A, b)
 
 
-def align_reconstruction_similarity(reconstruction, gcp, config):
+def align_reconstruction_similarity(reconstruction, gcp, config, use_scale):
     """Align reconstruction with GPS and GCP data.
 
     Config parameter `align_method` can be used to choose the alignment method.
@@ -55,10 +66,12 @@ def align_reconstruction_similarity(reconstruction, gcp, config):
         align_method = detect_alignment_constraints(config, reconstruction, gcp)
     if align_method == "orientation_prior":
         res = align_reconstruction_orientation_prior_similarity(
-            reconstruction, config, gcp
+            reconstruction, config, gcp, use_scale
         )
     elif align_method == "naive":
-        res = align_reconstruction_naive_similarity(config, reconstruction, gcp)
+        res = align_reconstruction_naive_similarity(
+            config, reconstruction, gcp, use_scale
+        )
 
     s, A, b = res
     if (s == 0) or np.isnan(A).any() or np.isnan(b).any():
@@ -83,8 +96,9 @@ def alignment_constraints(config, reconstruction, gcp):
     # Get camera center correspondences
     if config["bundle_use_gps"]:
         for shot in reconstruction.shots.values():
-            X.append(shot.pose.get_origin())
-            Xp.append(shot.metadata.gps_position.value)
+            if shot.metadata.gps_position.has_value:
+                X.append(shot.pose.get_origin())
+                Xp.append(shot.metadata.gps_position.value)
 
     return X, Xp
 
@@ -122,7 +136,7 @@ def detect_alignment_constraints(config, reconstruction, gcp):
         return "naive"
 
 
-def align_reconstruction_naive_similarity(config, reconstruction, gcp):
+def align_reconstruction_naive_similarity(config, reconstruction, gcp, use_scale):
     """Align with GPS and GCP data using direct 3D-3D matches."""
     X, Xp = alignment_constraints(config, reconstruction, gcp)
 
@@ -153,7 +167,7 @@ def align_reconstruction_naive_similarity(config, reconstruction, gcp):
     # Compute similarity Xp = s A X + b
     X = np.array(X)
     Xp = np.array(Xp)
-    T = tf.superimposition_matrix(X.T, Xp.T, scale=True)
+    T = tf.superimposition_matrix(X.T, Xp.T, scale=use_scale)
 
     A, b = T[:3, :3], T[:3, 3]
     s = np.linalg.det(A) ** (1.0 / 3)
@@ -161,7 +175,9 @@ def align_reconstruction_naive_similarity(config, reconstruction, gcp):
     return s, A, b
 
 
-def align_reconstruction_orientation_prior_similarity(reconstruction, config, gcp):
+def align_reconstruction_orientation_prior_similarity(
+    reconstruction, config, gcp, use_scale
+):
     """Align with GPS data assuming particular a camera orientation.
 
     In some cases, using 3D-3D matches directly fails to find proper
@@ -207,7 +223,9 @@ def align_reconstruction_orientation_prior_similarity(reconstruction, config, gc
             b = max_scale * b / current_scale
             s = max_scale / current_scale
     else:
-        T = tf.affine_matrix_from_points(X.T[:2], Xp.T[:2], shear=False)
+        T = tf.affine_matrix_from_points(
+            X.T[:2], Xp.T[:2], shear=False, scale=use_scale
+        )
         s = np.linalg.det(T[:2, :2]) ** 0.5
         A = np.eye(3)
         A[:2, :2] = T[:2, :2] / s
@@ -285,33 +303,17 @@ def get_horizontal_and_vertical_directions(R, orientation):
     return R[0, :], R[1, :], R[2, :]
 
 
-def triangulate_single_gcp(reconstruction, observations):
-    """Triangulate one Ground Control Point."""
-    reproj_threshold = 0.004
-    min_ray_angle_degrees = 2.0
-
-    os, bs = [], []
-    for o in observations:
-        if o.shot_id in reconstruction.shots:
-            shot = reconstruction.shots[o.shot_id]
-            os.append(shot.pose.get_origin())
-            b = shot.camera.pixel_bearing(np.asarray(o.projection))
-            r = shot.pose.get_rotation_matrix().T
-            bs.append(r.dot(b))
-
-    if len(os) >= 2:
-        thresholds = len(os) * [reproj_threshold]
-        angle = np.radians(min_ray_angle_degrees)
-        return pygeometry.triangulate_bearings_midpoint(os, bs, thresholds, angle)
-    return False, None
-
-
 def triangulate_all_gcp(reconstruction, gcp):
     """Group and triangulate Ground Control Points seen in 2+ images."""
     triangulated, measured = [], []
     for point in gcp:
-        e, x = triangulate_single_gcp(reconstruction, point.observations)
-        if e:
+        x = multiview.triangulate_gcp(
+            point,
+            reconstruction.shots,
+            reproj_threshold=0.004,
+            min_ray_angle_degrees=2.0,
+        )
+        if x is not None:
             triangulated.append(x)
             measured.append(point.coordinates.value)
     return triangulated, measured

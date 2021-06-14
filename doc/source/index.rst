@@ -1,4 +1,4 @@
-.. OpenSfM documentation master file
+.. OpenSfM documentation primary file
 
 OpenSfM
 =======
@@ -14,6 +14,9 @@ OpenSfM
    reconstruction_module
    large
    reporting
+   quality_report
+   rig
+   annotation_tool
    api
 
 Indices and tables

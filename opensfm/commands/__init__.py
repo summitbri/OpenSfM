@@ -3,6 +3,7 @@ from . import (
     bundle,
     compute_depthmaps,
     compute_statistics,
+    create_rig,
     create_submodels,
     create_tracks,
     detect_features,
@@ -15,9 +16,11 @@ from . import (
     export_report,
     export_visualsfm,
     extract_metadata,
+    extend_reconstruction,
     match_features,
     mesh,
     reconstruct,
+    reconstruct_from_prior,
     undistort,
 )
 from .command_runner import command_runner
@@ -27,8 +30,10 @@ opensfm_commands = [
     extract_metadata,
     detect_features,
     match_features,
+    create_rig,
     create_tracks,
     reconstruct,
+    reconstruct_from_prior,
     bundle,
     mesh,
     undistort,
@@ -42,6 +47,7 @@ opensfm_commands = [
     export_colmap,
     export_geocoords,
     export_report,
+    extend_reconstruction,
     create_submodels,
     align_submodels,
 ]

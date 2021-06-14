@@ -1,17 +1,17 @@
 import copy
 import logging
-import random
-import string
 import time
+from functools import partial
 
 from opensfm import exif
+from opensfm.dataset import DataSetBase
 
 
 logger = logging.getLogger(__name__)
 logging.getLogger("exifread").setLevel(logging.WARNING)
 
 
-def run_dataset(data):
+def run_dataset(data: DataSetBase):
     """ Extract metadata from images' EXIF tag. """
 
     start = time.time()
@@ -51,31 +51,26 @@ def run_dataset(data):
     data.save_camera_models(camera_models)
 
     end = time.time()
-    with open(data.profile_log(), "a") as fout:
+    with data.io_handler.open(data.profile_log(), "a") as fout:
         fout.write("extract_metadata: {0}\n".format(end - start))
 
 
-def _extract_exif(image, data):
-    # EXIF data in Image
+def _extract_exif(image, data: DataSetBase):
     with data.open_image_file(image) as fp:
-        d = exif.extract_exif_from_file(fp)
-    
+        d = exif.extract_exif_from_file(
+            fp, partial(data.image_size, image), data.config["use_exif_size"], name=image
+        )
+
     if data.config["unknown_camera_models_are_different"] and (
         not d["model"] or d["model"] == "unknown"
     ):
         d["model"] = f"unknown_{image}"
 
-    # TODO(pau): Undocumented hack. Replace with a cleaner solution.
-    if data.config.get("use_brown_camera"):
-        d["projection_type"] = "brown"
+    if data.config.get("default_projection_type"):
+        d["projection_type"] = data.config.get("default_projection_type")
     
-    # Override projection type if needed
-    elif data.config.get("camera_projection_type") != 'AUTO':
+    if data.config.get("camera_projection_type") != 'AUTO':
         d['projection_type'] = data.config['camera_projection_type'].lower()
-
-    # Image Height and Image Width
-    if d["width"] <= 0 or not data.config["use_exif_size"]:
-        d["height"], d["width"] = data.image_size(image)
 
     d["camera"] = exif.camera_id(d)
 

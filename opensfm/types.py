@@ -31,6 +31,8 @@ class Reconstruction(object):
         """Defaut constructor"""
         self.map = pymap.Map()
         self.camera_view = pymap.CameraView(self.map)
+        self.rig_cameras_view = pymap.RigCameraView(self.map)
+        self.rig_instances_view = pymap.RigInstanceView(self.map)
         self.shot_view = pymap.ShotView(self.map)
         self.pano_shot_view = pymap.PanoShotView(self.map)
         self.landmark_view = pymap.LandmarkView(self.map)
@@ -43,6 +45,24 @@ class Reconstruction(object):
             self.map.create_camera(cam)
 
     cameras = property(get_cameras, set_cameras)
+
+    def get_rig_cameras(self):
+        return self.rig_cameras_view
+
+    def set_rig_cameras(self, values):
+        for rig_camera in values.values():
+            self.map.create_rig_camera(rig_camera)
+
+    rig_cameras = property(get_rig_cameras, set_rig_cameras)
+
+    def get_rig_instances(self):
+        return self.rig_instances_view
+
+    def set_rig_instances(self, values):
+        for rig_instance in values:
+            self.add_rig_instance(rig_instance)
+
+    rig_instances = property(get_rig_instances, set_rig_instances)
 
     def get_shots(self):
         return self.shot_view
@@ -75,15 +95,16 @@ class Reconstruction(object):
 
     points = property(get_points, set_points)
 
-    def get_reference(self):
+    def get_reference(self) -> TopocentricConverter:
         ref = self.map.get_reference()
         return TopocentricConverter(ref.lat, ref.lon, ref.alt)
 
-    def set_reference(self, value):
+    def set_reference(self, value: TopocentricConverter) -> None:
         self.map.set_reference(value.lat, value.lon, value.alt)
 
     reference = property(get_reference, set_reference)
 
+    # Cameras
     def add_camera(self, camera):
         """Add a camera in the list
 
@@ -97,6 +118,32 @@ class Reconstruction(object):
         :return: If exists returns the camera, otherwise None.
         """
         return self.cameras.get(id)
+
+    # Rigs
+    def add_rig_camera(self, rig_camera):
+        """Add a rig camera in the list
+
+        :param rig_camera: The rig camera.
+        """
+        return self.map.create_rig_camera(rig_camera)
+
+    def add_rig_instance(self, rig_instance):
+        """Creates a copy of the passed rig instance
+        in the current reconstruction"""
+
+        for camera in rig_instance.rig_cameras.values():
+            if camera.id not in self.rig_cameras:
+                self.map.create_rig_camera(camera)
+        in_any_instance = any(
+            (set(rig_instance.shots) & set(ri.shots))
+            for ri in self.rig_instances.values()
+        )
+        if in_any_instance:
+            raise RuntimeError("Shots already exist in another instance")
+
+        if rig_instance.id not in self.rig_instances:
+            self.map.create_rig_instance(rig_instance.id, rig_instance.camera_ids)
+        return self.map.update_rig_instance(rig_instance)
 
     # Shot
     def create_shot(self, shot_id, camera_id, pose=None):

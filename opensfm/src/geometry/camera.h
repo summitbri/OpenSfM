@@ -1,10 +1,11 @@
 #pragma once
 
-#include <geometry/camera_functions.h>
+#include <foundation/types.h>
+#include <geometry/camera_instances.h>
 
-#include <Eigen/Eigen>
 #include <unordered_map>
 
+namespace geometry {
 class Camera {
  public:
   enum class Parameters : int {
@@ -30,7 +31,9 @@ class Camera {
     }
   };
 
-  Camera(const std::vector<Camera::Parameters>& types, const VecXd& values);
+  Camera() = default;
+  Camera(const ProjectionType& type, const std::vector<Parameters>& types,
+         const VecXd& values);
   static Camera CreatePerspectiveCamera(double focal, double k1, double k2);
   static Camera CreateBrownCamera(double focal, double aspect_ratio,
                                   const Vec2d& principal_point,
@@ -40,20 +43,27 @@ class Camera {
                                           const Vec2d& principal_point,
                                           const VecXd& distortion);
   static Camera CreateFisheye62Camera(double focal, double aspect_ratio,
-                                      const Eigen::Vector2d& principal_point,
-                                      const Eigen::VectorXd& distortion);
+                                      const Vec2d& principal_point,
+                                      const VecXd& distortion);
   static Camera CreateDualCamera(double transition, double focal, double k1,
                                  double k2);
   static Camera CreateSphericalCamera();
+  static Camera CreateRadialCamera(double focal, double aspect_ratio,
+                                   const Vec2d& principal_point,
+                                   const Vec2d& distortion);
+  static Camera CreateSimpleRadialCamera(double focal, double aspect_ratio,
+                                         const Vec2d& principal_point,
+                                         double k1);
 
   Vec2d Project(const Vec3d& point) const;
-  Eigen::MatrixX2d ProjectMany(const Eigen::MatrixX3d& points) const;
+  MatX2d ProjectMany(const MatX3d& points) const;
 
   Vec3d Bearing(const Vec2d& point) const;
-  Eigen::MatrixX3d BearingsMany(const Eigen::MatrixX2d& points) const;
+  MatX3d BearingsMany(const MatX2d& points) const;
 
   std::vector<Parameters> GetParametersTypes() const;
   VecXd GetParametersValues() const;
+  void SetParametersValues(const VecXd& values);
   std::map<Parameters, double, CompParameters> GetParametersMap() const;
 
   double GetParameterValue(const Parameters& parameter) const;
@@ -69,6 +79,7 @@ class Camera {
   int width{1};
   int height{1};
   std::string id;
+  size_t unique_id_{0}; // Assigned by map.CreateCamera(.)
 
   Vec2d PixelToNormalizedCoordinates(const Vec2d& px_coord) const;
   Vec2d NormalizedToPixelCoordinates(const Vec2d& norm_coord) const;
@@ -78,9 +89,7 @@ class Camera {
                                             const int width, const int height);
 
  private:
-  Camera();
-
-  ProjectionType type_;
+  ProjectionType type_{ProjectionType::NONE};
   std::vector<Parameters> types_;
   VecXd values_;
 };
@@ -88,3 +97,4 @@ class Camera {
 std::pair<MatXf, MatXf> ComputeCameraMapping(const Camera& from,
                                              const Camera& to, int width,
                                              int height);
+};  // namespace geometry

@@ -1,10 +1,16 @@
 import os
 
 from opensfm import dataset, undistort
+from opensfm.dataset import DataSet
 
 
+<<<<<<< HEAD
 def run_dataset(data, reconstruction, reconstruction_index, tracks, output, imageFilter = None):
     """ Export reconstruction to NVM_V3 format from VisualSfM
+=======
+def run_dataset(data: DataSet, reconstruction, reconstruction_index, tracks, output):
+    """Export reconstruction to NVM_V3 format from VisualSfM
+>>>>>>> mapillary/master
 
     Args:
         reconstruction: reconstruction to undistort

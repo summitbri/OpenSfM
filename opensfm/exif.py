@@ -7,7 +7,7 @@ import exifread
 import xmltodict as x2d
 from opensfm import pygeometry
 from opensfm.sensors import sensor_data
-
+from opensfm.dataset import DataSetBase
 
 logger = logging.getLogger(__name__)
 
@@ -104,13 +104,8 @@ def camera_id_(make, model, width, height, projection_type, focal, band_name):
     ).lower()
 
 
-def extract_exif_from_file(fileobj):
-    if isinstance(fileobj, str):
-        with open(fileobj) as f:
-            exif_data = EXIF(f)
-    else:
-        exif_data = EXIF(fileobj)
-
+def extract_exif_from_file(fileobj, image_size_loader, use_exif_size, name=None):
+    exif_data = EXIF(fileobj, image_size_loader, use_exif_size, name=name)
     d = exif_data.extract_exif()
     return d
 
@@ -173,29 +168,36 @@ def get_pix4d_from_xmp(xmp):
 
 
 class EXIF:
-    def __init__(self, fileobj):
+    def __init__(self, fileobj, image_size_loader, use_exif_size=True, name=None):
+        self.image_size_loader = image_size_loader
+        self.use_exif_size = use_exif_size
         self.fileobj = fileobj
         self.tags = exifread.process_file(fileobj, details=False)
         fileobj.seek(0)
         self.xmp = get_xmp(fileobj)
+        self.fileobj_name = self.fileobj.name if name is None else name
 
     def extract_image_size(self):
-        # Image Width and Image Height
         if (
-            "EXIF ExifImageWidth" in self.tags
-            and "EXIF ExifImageLength" in self.tags  # PixelXDimension
-        ):  # PixelYDimension
+            self.use_exif_size
+            and "EXIF ExifImageWidth" in self.tags
+            and "EXIF ExifImageLength" in self.tags
+        ):
             width, height = (
                 int(self.tags["EXIF ExifImageWidth"].values[0]),
                 int(self.tags["EXIF ExifImageLength"].values[0]),
             )
-        elif "Image ImageWidth" in self.tags and "Image ImageLength" in self.tags:
+        elif (
+            self.use_exif_size
+            and "Image ImageWidth" in self.tags
+            and "Image ImageLength" in self.tags
+        ):
             width, height = (
                 int(self.tags["Image ImageWidth"].values[0]),
                 int(self.tags["Image ImageLength"].values[0]),
             )
         else:
-            width, height = -1, -1
+            height, width = self.image_size_loader()
         return width, height
 
     def _decode_make_model(self, value):
@@ -326,11 +328,21 @@ class EXIF:
     def extract_dji_altitude(self):
         return float(self.xmp[0]["@drone-dji:AbsoluteAltitude"])
 
-    def has_dji_xmp(self):
-        return (len(self.xmp) > 0) and ("@drone-dji:Latitude" in self.xmp[0])
+    def has_xmp(self):
+        return len(self.xmp) > 0
+
+    def has_dji_latlon(self):
+        return (
+            self.has_xmp()
+            and "@drone-dji:Latitude" in self.xmp[0]
+            and "@drone-dji:Longitude" in self.xmp[0]
+        )
+
+    def has_dji_altitude(self):
+        return self.has_xmp() and "@drone-dji:AbsoluteAltitude" in self.xmp[0]
 
     def extract_lon_lat(self):
-        if self.has_dji_xmp():
+        if self.has_dji_latlon():
             lon, lat = self.extract_dji_lon_lat()
         elif "GPS GPSLatitude" in self.tags:
             reflon, reflat = self.extract_ref_lon_lat()
@@ -341,7 +353,7 @@ class EXIF:
         return lon, lat
 
     def extract_altitude(self):
-        if self.has_dji_xmp():
+        if self.has_dji_altitude():
             altitude = self.extract_dji_altitude()
         elif "GPS GPSAltitude" in self.tags:
             alt_value = self.tags["GPS GPSAltitude"].values[0]
@@ -351,6 +363,14 @@ class EXIF:
                 altitude = float(alt_value)
             else:
                 altitude = None
+
+            # Check if GPSAltitudeRef is equal to 1, which means GPSAltitude should be negative, reference: http://www.exif.org/Exif2-2.PDF#page=53
+            if (
+                "GPS GPSAltitudeRef" in self.tags
+                and self.tags["GPS GPSAltitudeRef"].values[0] == 1
+                and altitude is not None
+            ):
+                altitude = -altitude
         else:
             altitude = None
         return altitude
@@ -398,7 +418,7 @@ class EXIF:
             except (TypeError, ValueError):
                 logger.info(
                     'The GPS time stamp in image file "{0:s}" is invalid. '
-                    "Falling back to DateTime*".format(self.fileobj.name)
+                    "Falling back to DateTime*".format(self.fileobj_name)
                 )
 
         time_strings = [
@@ -420,7 +440,7 @@ class EXIF:
                     logger.debug(
                         'The "{1:s}" time stamp or "{2:s}" tag is invalid in '
                         'image file "{0:s}"'.format(
-                            self.fileobj.name, datetime_tag, subsec_tag
+                            self.fileobj_name, datetime_tag, subsec_tag
                         )
                     )
                     continue
@@ -434,7 +454,7 @@ class EXIF:
                     except (TypeError, ValueError):
                         logger.debug(
                             'The "{0:s}" time zone offset in image file "{1:s}"'
-                            " is invalid".format(offset_tag, self.fileobj.name)
+                            " is invalid".format(offset_tag, self.fileobj_name)
                         )
                         logger.debug(
                             'Naively assuming UTC on "{0:s}" in image file '
@@ -442,7 +462,7 @@ class EXIF:
 
                 return (d - datetime.datetime(1970, 1, 1)).total_seconds()
         logger.info(
-            'Image file "{0:s}" has no valid time stamp'.format(self.fileobj.name)
+            'Image file "{0:s}" has no valid time stamp'.format(self.fileobj_name)
         )
         return 0.0
 
@@ -534,7 +554,9 @@ def hard_coded_calibration(exif):
             return {"focal": 0.55, "k1": -0.30, "k2": 0.08}
         elif "hdr-as300" in model:
             return {"focal": 0.3958, "k1": -0.1496, "k2": 0.0201}
-
+    elif "PARROT" == make:
+        if 'Bebop 2' == model:
+            return {"focal": 0.36666666666666666}
 
 def focal_ratio_calibration(exif):
     if exif.get("focal_ratio"):
@@ -562,10 +584,12 @@ def focal_xy_calibration(exif):
             "p2": 0.0,
             "k3": 0.0,
             "k4": 0.0,
+            "k5": 0.0,
+            "k6": 0.0,
         }
 
 
-def default_calibration(data):
+def default_calibration(data: DataSetBase):
     return {
         "focal": data.config["default_focal_prior"],
         "focal_x": data.config["default_focal_prior"],
@@ -581,10 +605,16 @@ def default_calibration(data):
     }
 
 
-def calibration_from_metadata(metadata, data):
+def calibration_from_metadata(metadata, data: DataSetBase):
     """Finds the best calibration in one of the calibration sources."""
     pt = metadata.get("projection_type", default_projection).lower()
-    if pt == "brown" or pt == "fisheye_opencv":
+    if (
+        pt == "brown"
+        or pt == "fisheye_opencv"
+        or pt == "radial"
+        or pt == "simple_radial"
+        or pt == "fisheye62"
+    ):
         calib = (
             hard_coded_calibration(metadata)
             or focal_xy_calibration(metadata)
@@ -601,7 +631,7 @@ def calibration_from_metadata(metadata, data):
 
 
 def camera_from_exif_metadata(
-    metadata, data, calibration_func=calibration_from_metadata
+    metadata, data: DataSetBase, calibration_func=calibration_from_metadata
 ):
     """
     Create a camera object from exif metadata and the calibration
@@ -628,10 +658,42 @@ def camera_from_exif_metadata(
         )
     elif calib_pt == "fisheye_opencv":
         camera = pygeometry.Camera.create_fisheye_opencv(
-            calib['focal_x'], calib['focal_y'] / calib['focal_x'],
-            [calib.get('c_x', 0.0), calib.get('c_y', 0.0)],
-            [calib.get('k1', 0.0), calib.get('k2', 0.0), calib.get('k3', 0.0), calib.get('k4', 0.0)])
-    elif calib_pt == 'dual':
+            calib["focal_x"],
+            calib["focal_y"] / calib["focal_x"],
+            [calib["c_x"], calib["c_y"]],
+            [calib["k1"], calib["k2"], calib["k3"], calib["k4"]],
+        )
+    elif calib_pt == "fisheye62":
+        camera = pygeometry.Camera.create_fisheye62(
+            calib["focal_x"],
+            calib["focal_y"] / calib["focal_x"],
+            [calib["c_x"], calib["c_y"]],
+            [
+                calib["k1"],
+                calib["k2"],
+                calib["k3"],
+                calib["k4"],
+                calib["k5"],
+                calib["k6"],
+                calib["p1"],
+                calib["p2"],
+            ],
+        )
+    elif calib_pt == "radial":
+        camera = pygeometry.Camera.create_radial(
+            calib["focal_x"],
+            calib["focal_y"] / calib["focal_x"],
+            [calib["c_x"], calib["c_y"]],
+            [calib["k1"], calib["k2"]],
+        )
+    elif calib_pt == "simple_radial":
+        camera = pygeometry.Camera.create_simple_radial(
+            calib["focal_x"],
+            calib["focal_y"] / calib["focal_x"],
+            [calib["c_x"], calib["c_y"]],
+            calib["k1"],
+        )
+    elif calib_pt == "dual":
         camera = pygeometry.Camera.create_dual(
             calib["transition"], calib["focal"], calib["k1"], calib["k2"]
         )

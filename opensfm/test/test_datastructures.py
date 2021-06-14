@@ -7,6 +7,11 @@ from opensfm import pygeometry
 from opensfm import pymap
 from opensfm import pysfm
 from opensfm import types
+from opensfm.test.utils import (
+    assert_metadata_equal,
+    assert_cameras_equal,
+    assert_shots_equal,
+)
 
 
 def _create_reconstruction(
@@ -82,13 +87,6 @@ Camera Tests
 """
 
 
-def _helper_compare_persp_cameras(cam1, cam2):
-    assert cam1.focal == cam2.focal
-    assert cam1.id == cam2.id
-    assert cam1.k1 == cam2.k1
-    assert cam1.k2 == cam2.k2
-
-
 def test_create_cameras():
     n_cameras = 100
     rec = types.Reconstruction()
@@ -99,14 +97,13 @@ def test_create_cameras():
         cam.id = str(cam_id)
         # create the camera within the reconstruction
         map_cam = rec.add_camera(cam)
-        _helper_compare_persp_cameras(cam, map_cam)
+        assert_cameras_equal(cam, map_cam)
         # Check that the cameras are different
         assert cam is not map_cam
         # Check the getters
         assert map_cam is rec.get_camera(str(cam_id))
         assert map_cam is rec.cameras[str(cam_id)]
 
-    assert rec.map.number_of_cameras() == n_cameras
     assert len(rec.cameras) == n_cameras
 
 
@@ -177,6 +174,7 @@ def test_brown_camera():
     assert cam_cpp.k1 == c.k1 and cam_cpp.k2 == c.k2 and cam_cpp.k3 == c.k3
     assert cam_cpp.p2 == c.p2 and cam_cpp.p1 == c.p1
     assert np.allclose(cam_cpp.principal_point, c.principal_point)
+    assert len(c.distortion) == 5
     assert np.allclose(cam_cpp.distortion, c.distortion)
     assert cam_cpp.focal == c.focal
     assert cam_cpp.aspect_ratio == c.aspect_ratio
@@ -196,8 +194,55 @@ def test_fisheye_camera():
 
     # The specific parameters
     assert cam_cpp.k1 == c.k1 and cam_cpp.k2 == c.k2
+    assert len(c.distortion) == 2
     assert np.allclose(cam_cpp.distortion, c.distortion)
     assert cam_cpp.focal == c.focal
+
+
+def test_fisheye_opencv_camera():
+    rec = types.Reconstruction()
+    focal = 0.6
+    aspect_ratio = 0.7
+    ppoint = [0.51, 0.52]
+    dist = [-0.1, 0.09, 0.08, 0.01]
+    cam_cpp = pygeometry.Camera.create_fisheye_opencv(focal, aspect_ratio, ppoint, dist)
+    cam_cpp.width = 800
+    cam_cpp.height = 600
+    cam_cpp.id = "cam"
+    c = rec.add_camera(cam_cpp)
+    _check_common_cam_properties(cam_cpp, c)
+
+    # The specific parameters
+    assert cam_cpp.k1 == c.k1 and cam_cpp.k2 == c.k2
+    assert cam_cpp.k3 == c.k3 and cam_cpp.k4 == c.k4
+    assert len(dist) == len(c.distortion)
+    assert np.allclose(cam_cpp.distortion, c.distortion)
+    assert cam_cpp.focal == c.focal
+    assert cam_cpp.aspect_ratio == c.aspect_ratio
+
+
+def test_fisheye62_camera():
+    rec = types.Reconstruction()
+    focal = 0.6
+    aspect_ratio = 0.7
+    ppoint = [0.51, 0.52]
+    dist = [-0.1, 0.09, 0.08, 0.01, 0.02, 0.05, 0.1, 0.2]  # [k1-k6, p1, p2]
+    cam_cpp = pygeometry.Camera.create_fisheye62(focal, aspect_ratio, ppoint, dist)
+    cam_cpp.width = 800
+    cam_cpp.height = 600
+    cam_cpp.id = "cam"
+    c = rec.add_camera(cam_cpp)
+    _check_common_cam_properties(cam_cpp, c)
+
+    # The specific parameters
+    assert cam_cpp.k1 == c.k1 and cam_cpp.k2 == c.k2
+    assert cam_cpp.k3 == c.k3 and cam_cpp.k4 == c.k4
+    assert cam_cpp.k5 == c.k5 and cam_cpp.k6 == c.k6
+    assert cam_cpp.p1 == c.p1 and cam_cpp.p2 == c.p2
+    assert len(dist) == len(c.distortion)
+    assert np.allclose(cam_cpp.distortion, c.distortion)
+    assert cam_cpp.focal == c.focal
+    assert cam_cpp.aspect_ratio == c.aspect_ratio
 
 
 def test_dual_camera():
@@ -215,6 +260,7 @@ def test_dual_camera():
 
     # The specific parameters
     assert cam_cpp.k1 == c.k1 and cam_cpp.k2 == c.k2
+    assert len(c.distortion) == 2
     assert np.allclose(cam_cpp.distortion, c.distortion)
     assert cam_cpp.focal == c.focal
     assert cam_cpp.transition == c.transition
@@ -234,6 +280,7 @@ def test_perspective_camera():
 
     # The specific parameters
     assert cam_cpp.k1 == c.k1 and cam_cpp.k2 == c.k2
+    assert len(c.distortion) == 2
     assert np.allclose(cam_cpp.distortion, c.distortion)
     assert cam_cpp.focal == c.focal
 
@@ -249,43 +296,6 @@ def test_spherical_camera():
 
 
 # Test Metadata
-
-
-def _helper_metadata_equal(m1, m2):
-    # Asserts if both are correct and if the exist
-    assert m1.capture_time.has_value == m2.capture_time.has_value
-    if m1.capture_time.has_value:
-        assert m1.capture_time.value == m2.capture_time.value
-
-    assert m1.gps_position.has_value == m2.gps_position.has_value
-    if m1.gps_position.has_value:
-        assert np.allclose(m1.gps_position.value, m2.gps_position.value)
-
-    assert m1.gps_accuracy.has_value == m2.gps_accuracy.has_value
-    if m1.gps_accuracy.has_value:
-        assert m1.gps_accuracy.value == m2.gps_accuracy.value
-
-    assert m1.compass_accuracy.has_value == m2.compass_accuracy.has_value
-    if m1.compass_accuracy.has_value:
-        assert m1.compass_accuracy.value == m2.compass_accuracy.value
-
-    assert m1.compass_angle.has_value == m2.compass_angle.has_value
-    if m1.compass_angle.has_value:
-        assert m1.compass_angle.value == m2.compass_angle.value
-
-    assert m1.accelerometer.has_value == m2.accelerometer.has_value
-    if m1.accelerometer.has_value:
-        assert np.allclose(m1.accelerometer.value, m2.accelerometer.value)
-
-    assert m1.orientation.has_value == m2.orientation.has_value
-    if m1.orientation.has_value:
-        assert m1.orientation.value == m2.orientation.value
-
-    assert m1.sequence_key.has_value == m2.sequence_key.has_value
-    if m1.sequence_key.has_value:
-        assert m1.sequence_key.value == m2.sequence_key.value
-
-
 def _help_measurement_test(measurement, attr, val):
     # Test metadata's has_value properties
     assert getattr(measurement, attr).has_value is False
@@ -332,11 +342,11 @@ def test_shot_measurement_set():
     # Test setting metadata with other metadata
     m2.set(m1)
     # Check that m2 has the same values as m1
-    _helper_metadata_equal(m1, m2)
+    assert_metadata_equal(m1, m2)
     m3 = pymap.ShotMeasurements()
     m1.set(m3)
     # Now m1 should be completely reset
-    _helper_metadata_equal(m1, m3)
+    assert_metadata_equal(m1, m3)
 
 
 def test_shot_create():
@@ -367,22 +377,21 @@ def test_shot_create_existing():
 def test_shot_create_more():
     # Given some created shot
     rec = _create_reconstruction(2)
-    shot1 = rec.create_shot("shot0", "0")
+    rec.create_shot("shot0", "0")
 
     # When we create more new shots
     n_shots = 10
     for i in range(1, n_shots):
-        shot1 = rec.create_shot("shot" + str(i), "0")
+        rec.create_shot("shot" + str(i), "0")
 
     # Then we should have more
     assert len(rec.shots) == n_shots
-    assert rec.map.number_of_shots() == n_shots
 
 
 def test_shot_delete_non_existing():
     # Given some created reconstruction
     rec = _create_reconstruction(2)
-    shot1 = rec.create_shot("shot0", "0")
+    rec.create_shot("shot0", "0")
 
     # When deleting non-existing shot
     # It should throw
@@ -413,6 +422,17 @@ def test_shot_get():
     # We should get it
     assert shot1 is rec.get_shot(shot_id)
     assert shot1 is rec.shots[shot_id]
+
+
+def test_shot_pose_set():
+    # Given some created shot
+    rec = _create_reconstruction(1)
+    shot_id = "shot0"
+    shot = rec.create_shot(shot_id, "0")
+
+    origin = np.array([1, 2, 3])
+    shot.pose.set_origin(origin)
+    assert np.allclose(origin, shot.pose.get_origin())
 
 
 def test_shot_get_non_existing():
@@ -452,21 +472,21 @@ def test_pano_shot_get_non_existing():
         assert shot1 is rec.shots["toto"]
 
 
-def test_shot_create():
+def test_pano_shot_create():
     # Given some created shot
     rec = _create_reconstruction(2)
-    shot1 = rec.create_shot("shot0", "0")
+    shot1 = rec.create_pano_shot("shot0", "0")
 
     # When getting it, it should have some properties
     assert shot1.id == "shot0"
     assert shot1.camera.id == "0"
-    assert len(rec.shots) == 1
+    assert len(rec.pano_shots) == 1
 
 
 def test_pano_shot_create_existing():
     # Given some created pano shot
     rec = _create_reconstruction(2)
-    shot1 = rec.create_pano_shot("shot0", "0")
+    rec.create_pano_shot("shot0", "0")
 
     n_shots = 10
     # When re-adding the same pano shot
@@ -480,22 +500,21 @@ def test_pano_shot_create_existing():
 def test_pano_shot_create_more():
     # Given some created pano shot
     rec = _create_reconstruction(2)
-    shot1 = rec.create_pano_shot("shot0", "0")
+    rec.create_pano_shot("shot0", "0")
 
     # When we create more new pano shots
     n_shots = 10
     for i in range(1, n_shots):
-        shot1 = rec.create_pano_shot("shot" + str(i), "0")
+        rec.create_pano_shot("shot" + str(i), "0")
 
     # Then we should have more
     assert len(rec.pano_shots) == n_shots
-    assert rec.map.number_of_pano_shots() == n_shots
 
 
 def test_pano_shot_delete_non_existing():
     # Given some created reconstruction
     rec = _create_reconstruction(2)
-    shot1 = rec.create_pano_shot("shot0", "0")
+    rec.create_pano_shot("shot0", "0")
 
     # When deleting non-existing shot
     # It should throw
@@ -523,7 +542,6 @@ def test_shot_merge_cc():
     # Given some created reconstruction
     rec = _create_reconstruction(1, {"0": 2})
     map_shot1 = rec.shots["0"]
-    map_shot2 = rec.shots["1"]
 
     # When setting some merge_cc
     map_shot1.merge_cc = 10
@@ -536,7 +554,6 @@ def test_shot_covariance():
     # Given some created reconstruction
     rec = _create_reconstruction(1, {"0": 2})
     map_shot1 = rec.shots["0"]
-    map_shot2 = rec.shots["1"]
 
     # When setting some covariance
     map_shot1.covariance = np.diag([1, 2, 3])
@@ -553,7 +570,7 @@ def test_shot_covariance_different():
 
     # When setting some covariance
     map_shot1.covariance = np.diag([1, 2, 3])
-    map_shot1.covariance = np.diag([2, 2, 2])
+    map_shot2.covariance = np.diag([2, 2, 2])
 
     # Then they are different objects
     assert map_shot2.covariance is not map_shot1.covariance
@@ -595,12 +612,51 @@ def test_pano_shot_create_remove_create():
     assert len(rec.pano_shots) == n_shots
 
 
-def _helper_shots_equal(shot1, shot2):
-    assert shot1.id == shot2.id
-    assert shot1.merge_cc == shot2.merge_cc
-    assert shot1.camera.id == shot2.camera.id
-    assert np.allclose(shot1.covariance, shot2.covariance)
-    _helper_metadata_equal(shot1.metadata, shot2.metadata)
+def _create_rig_camera():
+    rig_camera = pymap.RigCamera()
+    rig_camera.id = "rig_camera"
+    return rig_camera
+
+
+def _create_rig_instance():
+    rec = _create_reconstruction(1, {"0": 2})
+    rig_camera = rec.add_rig_camera(_create_rig_camera())
+    rig_instance = pymap.RigInstance(1)
+    shot = pymap.Shot("0", pygeometry.Camera.create_spherical(), pygeometry.Pose())
+    rig_instance.add_shot(rig_camera, shot)
+    return rec, rig_instance, shot
+
+
+def test_rig_camera_create():
+    rec = _create_reconstruction(1, {"0": 2})
+    rec.add_rig_camera(_create_rig_camera())
+    assert list(rec.rig_cameras.keys()) == ["rig_camera"]
+
+
+def test_rig_instance():
+    _, rig_instance, _ = _create_rig_instance()
+    assert list(rig_instance.keys()) == ["0"]
+
+
+def test_rig_instance_create():
+    rec, rig_instance, _ = _create_rig_instance()
+    rec.add_rig_instance(rig_instance)
+
+    assert len(rec.rig_instances) == 1
+    assert dict(rec.rig_instances[1].camera_ids.items()) == {"0": "rig_camera"}
+    assert list(rec.rig_instances[1].shots.keys()) == ["0"]
+
+
+def test_rig_shot_modify_pose():
+    _, rig_instance, shot = _create_rig_instance()
+    with pytest.raises(RuntimeError):
+        shot.pose.set_origin(np.array([1, 2, 3]))
+
+
+def test_rig_shot_set_pose():
+    _, rig_instance, shot = _create_rig_instance()
+    with pytest.raises(RuntimeError):
+        shot.pose = pygeometry.Pose()
 
 
 def test_add_shot_from_shot_correct_value():
@@ -622,7 +678,7 @@ def test_add_shot_from_shot_correct_value():
 
     # ... and new's shots values should be the same as rec's ones'
     for k in rec_new.shots.keys():
-        _helper_shots_equal(rec.shots[k], rec_new.shots[k])
+        assert_shots_equal(rec.shots[k], rec_new.shots[k])
 
 
 def test_shot_metadata_different():
@@ -650,7 +706,7 @@ def test_shot_metadata_assign_equal():
     assert shot1.metadata is not shot2.metadata
 
     # ... but their values are equal
-    _helper_metadata_equal(shot1.metadata, shot2.metadata)
+    assert_metadata_equal(shot1.metadata, shot2.metadata)
 
 
 def test_add_pano_shot_from_shot_correct_value():
@@ -669,7 +725,7 @@ def test_add_pano_shot_from_shot_correct_value():
 
     # Then new's shots values should be the same as rec's ones'
     for k in rec_new.shots.keys():
-        _helper_shots_equal(rec.pano_shots[k], rec_new.pano_shots[k])
+        assert_shots_equal(rec.pano_shots[k], rec_new.pano_shots[k])
 
 
 def test_single_point_create():
@@ -680,7 +736,7 @@ def test_single_point_create():
     # It should be there
     assert pt.id == "0"
     assert pt.unique_id == 0
-    assert len(rec.points) == 1 and rec.map.number_of_landmarks() == 1
+    assert len(rec.points) == 1
 
 
 def test_single_point_get_existing():
@@ -695,7 +751,7 @@ def test_single_point_get_existing():
 def test_single_point_get_non_existing():
     # Given a created point
     rec = types.Reconstruction()
-    pt = rec.create_point("0")
+    rec.create_point("0")
 
     # When we get a non existing one
     with pytest.raises(RuntimeError):
@@ -714,7 +770,6 @@ def test_single_point_coordinates():
 
     # They should be set
     assert np.allclose(pt.coordinates, coord)
-    assert np.allclose(pt.get_global_pos(), coord)
 
 
 def test_single_point_color():
@@ -743,7 +798,7 @@ def test_point_add_from_point():
     pt2_1 = rec.add_point(pt2)
 
     # Then rec should have it ...
-    assert len(rec.points) == 1 and rec.map.number_of_landmarks() == 1
+    assert len(rec.points) == 1
 
     # ... as a different object
     assert pt2 is not pt2_1
@@ -767,21 +822,6 @@ def test_point_reproj_errors_assign():
     # They should be correct
     for k in reproj_errors.keys():
         assert np.allclose(pt.reprojection_errors[k], reproj_errors[k])
-
-
-def test_point_reproj_errors_remove():
-    # Given some created point with reproj errors
-    rec = _create_reconstruction(n_points=1)
-    pt = rec.points["0"]
-    reproj_errors = dict({"shot1": np.random.rand(2), "shot2": np.random.rand(2)})
-    pt.reprojection_errors = reproj_errors
-
-    # When we delete all of them
-    for k in reproj_errors.keys():
-        pt.remove_reprojection_error(k)
-
-    # Then, there's none
-    assert len(pt.reprojection_errors) == 0
 
 
 def test_point_delete_non_existing():
@@ -824,13 +864,12 @@ def test_single_observation():
     rec = _create_reconstruction(1, n_shots_cam={"0": 1}, n_points=1)
 
     # When we add an observation to it
-    obs = pysfm.Observation(100, 200, 0.5, 255, 0, 0, 100)
+    obs = pysfm.Observation(100, 200, 0.5, 255, 0, 0, 100, 2, 5)
     rec.add_observation("0", "0", obs)
     shot = rec.shots["0"]
     pt = rec.points["0"]
 
     # Then it has one observation ...
-    assert pt.has_observations()
     observations = pt.get_observations()
     assert len(observations) == 1
     assert pt.number_of_observations() == 1
@@ -852,7 +891,6 @@ def test_single_observation_delete():
     rec.remove_observation(shot.id, pt.id)
 
     # Then there's none
-    assert pt.has_observations() is False
     observations = pt.get_observations()
     assert len(observations) == 0
     assert pt.number_of_observations() == 0
@@ -891,37 +929,8 @@ def test_many_observations_delete():
         n_total_obs -= lm.number_of_observations()
     assert n_total_obs == 0
 
-    # When we remove the observations for half of the shots
-    for lm in m.get_landmarks().values():
-        for shot_id in range(int(n_shots / 2)):
-            m.remove_observation(str(shot_id), lm.id)
-        # Then each each landmark has N/2 observations
-        assert lm.number_of_observations() == int(n_shots / 2)
-
-    # Then there #shots x #points observations remaning
-    n_total_obs = 0
-    for shot in m.get_shots().values():
-        n_total_obs += shot.compute_num_valid_pts(1)
-    assert n_total_obs == int((n_shots * n_landmarks) / 2)
-
     # and when we clear all the observations
     m.clear_observations_and_landmarks()
-
-    # Then there's none
-    assert m.number_of_landmarks() == 0
-
-
-def test_valid_landmarks():
-    # Given a reconstruction with one shot
-    rec = _create_reconstruction(1, n_shots_cam={"0": 1}, n_points=100)
-
-    # When coutning the number of 2-shots valid landmarks
-    n_total_obs = 0
-    for shot in rec.shots.values():
-        n_total_obs += shot.compute_num_valid_pts(1)
-
-    # Then there's none
-    assert n_total_obs == 0
 
 
 def test_camera_deepcopy():
@@ -968,30 +977,6 @@ def test_observation_shot_removal():
         assert len(p.get_observations()) == 0
 
 
-def test_observation_point_removal():
-    # Given a reconstruction with many shots
-    rec = _create_reconstruction(
-        n_cameras=2,
-        n_shots_cam={"0": 50, "1": 40},
-        n_pano_shots_cam={"0": 20, "1": 30},
-        n_points=200,
-        dist_to_shots=True,
-    )
-
-    # For each point we remove ...
-    pt_list = list(rec.points.keys())
-    for pt_id in pt_list:
-        p = rec.points[pt_id]
-        shots = []
-        for shot in p.get_observations():
-            shots.append((shot, shot.compute_num_valid_pts()))
-        # ... sequentially
-        rec.remove_point(pt_id)
-        for shot, n_pts in shots:
-            # Then each shot viewing the point has one less valid point
-            assert n_pts - 1 == shot.compute_num_valid_pts(1)
-
-
 def test_rec_deepcopy():
     # Given a reconstruction with everything (shots, pano shots, metadata)
     rec = _create_reconstruction(
@@ -1019,19 +1004,19 @@ def test_rec_deepcopy():
     for k in rec.cameras:
         cam, cam_cpy = rec.cameras[k], rec2.cameras[k]
         assert cam != cam_cpy
-        _helper_compare_persp_cameras(cam, cam_cpy)
+        assert_cameras_equal(cam, cam_cpy)
 
     # Shots are different objects of same value
     for shot_id in rec2.shots.keys():
         shot1, shot2 = rec.shots[shot_id], rec2.shots[shot_id]
         assert shot1 is not shot2
-        _helper_shots_equal(shot1, shot2)
+        assert_shots_equal(shot1, shot2)
 
     # Pano shots are different objects of same value
     for shot_id in rec2.pano_shots.keys():
         shot1, shot2 = rec.pano_shots[shot_id], rec2.pano_shots[shot_id]
         assert shot1 is not shot2
-        _helper_shots_equal(shot1, shot2)
+        assert_shots_equal(shot1, shot2)
 
     # Points are different objects of same value
     for pt_id in rec2.points:
