@@ -1,9 +1,8 @@
 import logging
 import os
-import resource
 import sys
 from typing import Optional
-
+import vmem
 
 def setup():
     logging.basicConfig(
@@ -12,20 +11,10 @@ def setup():
 
 
 def memory_usage() -> float:
-    if sys.platform == "darwin":
-        rusage_denom = 1024.0 * 1024.0
-    else:
-        rusage_denom = 1024.0
-    return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / rusage_denom
+    return vmem.virtual_memory().used / 1024 / 1024 / 1024
 
 
 def memory_available() -> Optional[int]:
     """Available memory in MB.
-
-    Only works on linux and returns None otherwise.
     """
-    lines = os.popen("free -t -m").readlines()
-    if not lines:
-        return None
-    available_mem = int(lines[1].split()[6])
-    return available_mem
+    return vmem.virtual_memory().available / 1024 / 1024
