@@ -1,19 +1,24 @@
+import logging
+import time
 from collections import defaultdict
 from typing import Callable, Tuple, List, Dict, Any, Optional, Union
 
 import cv2
 import numpy as np
+import opensfm.synthetic_data.synthetic_dataset as sd
 import scipy.signal as signal
 import scipy.spatial as spatial
 from opensfm import (
     geo,
     pygeometry,
-    pysfm,
     reconstruction as rc,
     types,
     pymap,
     features as oft,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 def derivative(func: Callable, x: np.ndarray) -> np.ndarray:
@@ -325,14 +330,17 @@ def create_reconstruction(
 
 
 def generate_track_data(
-    reconstruction: types.Reconstruction, maximum_depth: float, noise: float
-) -> Tuple[Dict[str, oft.FeaturesData], pysfm.TracksManager,]:
+    reconstruction: types.Reconstruction,
+    maximum_depth: float,
+    noise: float,
+    on_disk_features_filename: Optional[str],
+) -> Tuple[sd.SyntheticFeatures, pymap.TracksManager]:
     """Generate projection data from a reconstruction, considering a maximum
     viewing depth and gaussian noise added to the ideal projections.
     Returns feature/descriptor/color data per shot and a tracks manager object.
     """
 
-    tracks_manager = pysfm.TracksManager()
+    tracks_manager = pymap.TracksManager()
 
     feature_data_type = np.float32
     desc_size = 128
@@ -354,9 +362,10 @@ def generate_track_data(
     # should speed-up projection queries
     points_tree = spatial.cKDTree(points_coordinates)
 
-    features = {}
+    start = time.time()
+    features = sd.SyntheticFeatures(on_disk_features_filename)
     default_scale = 0.004
-    for shot_index, shot in reconstruction.shots.items():
+    for index, (shot_index, shot) in enumerate(reconstruction.shots.items()):
         # query all closest points
         neighbors = list(
             sorted(points_tree.query_ball_point(shot.pose.get_origin(), maximum_depth))
@@ -398,7 +407,7 @@ def generate_track_data(
             projections_inside.append([projection[0], projection[1], default_scale])
             descriptors_inside.append(track_descriptors[p_id])
             colors_inside.append(color)
-            obs = pysfm.Observation(
+            obs = pymap.Observation(
                 projection[0],
                 projection[1],
                 default_scale,
@@ -414,6 +423,12 @@ def generate_track_data(
             np.array(colors_inside),
             None,
         )
+
+        if index % 100 == 0:
+            logger.info(
+                f"Flushing images # {index} ({(time.time() - start)/(index+1)} sec. per image"
+            )
+            features.sync()
 
     return features, tracks_manager
 

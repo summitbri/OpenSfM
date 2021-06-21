@@ -1,13 +1,14 @@
 #pragma once
 
-#include <sfm/observation.h>
-#include <sfm/types.h>
+#include <map/defines.h>
+#include <map/observation.h>
 
 #include <fstream>
 #include <map>
 #include <unordered_map>
 #include <vector>
 
+namespace map {
 class TracksManager {
  public:
   void AddObservation(const ShotId& shot_id, const TrackId& track_id,
@@ -58,3 +59,4 @@ class TracksManager {
   std::unordered_map<TrackId, std::unordered_map<ShotId, Observation>>
       shots_per_track_;
 };
+}  // namespace map

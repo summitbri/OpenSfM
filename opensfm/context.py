@@ -2,9 +2,10 @@ import logging
 import os
 import vmem
 import sys
+from typing import Optional
 
 import cv2
-from joblib import Parallel, delayed, externals, parallel_backend
+from joblib import Parallel, delayed, parallel_backend
 
 
 logger = logging.getLogger(__name__)
@@ -59,7 +60,7 @@ def memory_available():
     return vmem.virtual_memory().available / 1024 / 1024
 
 
-def processes_that_fit_in_memory(desired, per_process):
+def processes_that_fit_in_memory(desired: int, per_process: int) -> int:
     """Amount of parallel BoW process that fit in memory."""
     available_mem = memory_available()
     if available_mem is not None:

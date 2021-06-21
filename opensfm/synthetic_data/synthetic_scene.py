@@ -3,9 +3,10 @@ import math
 from typing import Dict, Optional, List, Any, Union, Tuple, Callable
 
 import numpy as np
+import opensfm.synthetic_data.synthetic_dataset as sd
 import opensfm.synthetic_data.synthetic_generator as sg
 import opensfm.synthetic_data.synthetic_metrics as sm
-from opensfm import pygeometry, types, pymap, pysfm, features as oft, geo
+from opensfm import pygeometry, types, pymap, pysfm, geo
 
 
 def get_camera(
@@ -209,7 +210,16 @@ class SyntheticStreetScene(SyntheticScene):
         sg.perturb_points(self.floor_points, floor_pertubation)  # pyre-fixme [6]
         return self
 
-    def set_terrain_hill(self, height: float, radius: float) -> "SyntheticStreetScene":
+    def set_terrain_hill(
+        self, height: float, radius: float, repeated: bool
+    ) -> "SyntheticStreetScene":
+        if not repeated:
+            self._set_terrain_hill_single(height, radius)
+        else:
+            self._set_terrain_hill_repeated(height, radius)
+        return self
+
+    def _set_terrain_hill_single(self, height: float, radius: float):
         # pyre-fixme [16]: `Optional` has no attribute `__getitem__`
         self.wall_points[:, 2] += height * np.exp(
             -0.5 * np.linalg.norm(self.wall_points[:, :2], axis=1) ** 2 / radius ** 2
@@ -226,7 +236,21 @@ class SyntheticStreetScene(SyntheticScene):
                         (position[0] ** 2 + position[1] ** 2) / radius ** 2
                     )
                 )
-        return self
+
+    def _set_terrain_hill_repeated(self, height: float, radius: float):
+        # pyre-fixme [16]: `Optional` has no attribute `__getitem__`
+        self.wall_points[:, 2] += height * np.sin(
+            np.linalg.norm(self.wall_points[:, :2], axis=1) / radius
+        )
+        self.floor_points[:, 2] += height * np.sin(
+            np.linalg.norm(self.floor_points[:, :2], axis=1) / radius
+        )
+
+        for positions in self.shot_positions + self.instances_positions:
+            for position in positions:
+                position[2] += height * np.sin(
+                    math.sqrt(position[0] ** 2 + position[1] ** 2) / radius
+                )
 
     def add_camera_sequence(
         self,
@@ -360,8 +384,8 @@ class SyntheticInputData:
 
     reconstruction: types.Reconstruction
     exifs: Dict[str, Any]
-    features: Dict[str, oft.FeaturesData]
-    tracks_manager: pysfm.TracksManager
+    features: sd.SyntheticFeatures
+    tracks_manager: pymap.TracksManager
 
     def __init__(
         self,
@@ -371,6 +395,7 @@ class SyntheticInputData:
         projection_noise: float,
         gps_noise: Union[Dict[str, float], float],
         causal_gps_noise: bool,
+        on_disk_features_filename: Optional[str] = None,
         generate_projections: bool = True,
     ):
         self.reconstruction = reconstruction
@@ -380,11 +405,14 @@ class SyntheticInputData:
 
         if generate_projections:
             (self.features, self.tracks_manager) = sg.generate_track_data(
-                reconstruction, projection_max_depth, projection_noise
+                reconstruction,
+                projection_max_depth,
+                projection_noise,
+                on_disk_features_filename,
             )
         else:
-            self.features = {}
-            self.tracks_manager = pysfm.TracksManager()
+            self.features = sd.SyntheticFeatures(None)
+            self.tracks_manager = pymap.TracksManager()
 
 
 def compare(

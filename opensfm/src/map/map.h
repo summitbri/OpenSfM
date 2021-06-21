@@ -8,7 +8,7 @@
 #include <map/landmark.h>
 #include <map/rig.h>
 #include <map/shot.h>
-#include <sfm/tracks_manager.h>
+#include <map/tracks_manager.h>
 
 #include <Eigen/Core>
 #include <map>
