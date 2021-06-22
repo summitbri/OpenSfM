@@ -1091,8 +1091,9 @@ class UndistortedDataSet(object):
 
     def _undistorted_image_file(self, image: str) -> str:
         """Path of undistorted version of an image."""
+        p, ext = os.path.splitext(image)
         if ' ' in image:
-            image = image.replace(' ', '') + hashlib.md5(image.encode('utf8')).hexdigest()
+            image = p.replace(' ', '') + hashlib.md5(image.encode('utf8')).hexdigest() + ext
         return os.path.join(self._undistorted_image_path(), image)
 
     def load_undistorted_image(self, image: str) -> np.ndarray:

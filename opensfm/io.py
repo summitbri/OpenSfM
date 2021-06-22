@@ -1181,7 +1181,7 @@ def imwrite(path, image: np.ndarray):
         return imwrite_rasterio(path, image)
     else:
         with open(path, "wb") as fwb:
-            return imwrite_from_fileobject(fwb, image, path)
+            return imwrite_from_fileobject(fwb, image, ext)
 
 
 def imwrite_from_fileobject(fwb, image: np.ndarray, ext: str):
@@ -1368,7 +1368,7 @@ class IoFilesystemDefault(IoFilesystemBase):
             imwrite_rasterio(path, image)
         else:
             with cls.open(path, "wb") as fwb:
-                imwrite_from_fileobject(fwb, image, path)
+                imwrite_from_fileobject(fwb, image, ext)
 
     @classmethod
     def image_size(cls, path):
