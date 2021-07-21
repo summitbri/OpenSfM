@@ -279,6 +279,14 @@ def processing_statistics(data: DataSet, reconstructions):
     except FileNotFoundError:
         stats["date"] = "unknown"
 
+    start_ct, end_ct = start_end_capture_time(reconstructions)
+    if start_ct is not None and end_ct is not None:
+        stats["start_date"] = datetime.datetime.fromtimestamp(start_ct).strftime("%d/%m/%Y at %H:%M:%S")
+        stats["end_date"] = datetime.datetime.fromtimestamp(end_ct).strftime("%d/%m/%Y at %H:%M:%S")
+    else:
+        stats["start_date"] = "unknown"
+        stats["end_date"] = "unknown"
+        
     default_max = 1e30
     min_x, min_y, max_x, max_y = default_max, default_max, 0, 0
     for rec in reconstructions:
@@ -932,3 +940,22 @@ def decimate_points(reconstructions, max_num_points):
 
             for point_id in random_ids:
                 rec.remove_point(point_id)
+
+
+def start_end_capture_time(reconstructions):
+    end_ct = float('-inf')
+    start_ct = float('inf')
+
+    for reconstruction in reconstructions:
+        for shot in reconstruction.shots.values():
+            if shot.metadata.capture_time.has_value:
+                v = shot.metadata.capture_time.value
+                if v > end_ct:
+                    end_ct = v
+                if v < start_ct:
+                    start_ct = v
+
+    if end_ct != float('-inf') and start_ct != float('inf'):
+        return (start_ct, end_ct)
+    else:
+        return (None, None)

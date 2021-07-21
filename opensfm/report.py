@@ -164,7 +164,8 @@ class Report:
 
         rows = [
             #["Dataset", self.dataset_name],
-            ["Date", self.stats["processing_statistics"]["date"]],
+            ["Start Date", self.stats["processing_statistics"]["start_date"]],
+            ["End Date", self.stats["processing_statistics"]["end_date"]],
             [
                 "Area Covered",
                 f"{self.stats['processing_statistics']['area']/1e6:.6f} km²",
@@ -212,10 +213,10 @@ class Report:
                 "Reconstructed Points (Sparse)",
                 f"{rec_points} over {init_points} points ({rec_points/init_points*100:.1f}%)",
             ],
-            [
-                "Reconstructed Components",
-                f"{self.stats['reconstruction_statistics']['components']} component",
-            ],
+            # [
+            #     "Reconstructed Components",
+            #     f"{self.stats['reconstruction_statistics']['components']} component",
+            # ],
             [
                 "Detected Features",
                 f"{self.stats['features_statistics']['detected_features']['median']:,} features",
