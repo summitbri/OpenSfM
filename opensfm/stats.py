@@ -41,8 +41,35 @@ def _gps_errors(reconstruction):
             )
     return errors
 
+def _gps_relative_errors(reconstruction):
+    errors = []
 
-def _gps_gcp_errors_stats(errors):
+    shotIds = list(reconstruction.shots)
+    for i in range(0, len(shotIds) - 1):
+        s1 = reconstruction.shots[shotIds[i]]
+        s2 = reconstruction.shots[shotIds[i + 1]]
+        if s1.metadata.gps_position.has_value and s2.metadata.gps_position.has_value:
+            measured_v = s1.metadata.gps_position.value - s2.metadata.gps_position.value
+            computed_v = s1.pose.get_origin() - s2.pose.get_origin()
+
+            errors.append(measured_v - computed_v)
+
+    return errors
+
+def _gps_accuracy(reconstructions):
+    accuracy = []
+
+    for reconstruction in reconstructions:
+        for shot in reconstruction.shots.values():
+            if shot.metadata.gps_accuracy.has_value:
+                accuracy.append(shot.metadata.gps_accuracy.value)
+
+    if len(accuracy) > 0:
+        return np.mean(accuracy)
+    else:
+        return 15.0
+
+def _gps_gcp_errors_stats(errors, rel_errors):
     if not errors:
         return {}
 
@@ -61,27 +88,73 @@ def _gps_gcp_errors_stats(errors):
         "z": math.sqrt(m_squared[2]),
     }
     stats["average_error"] = average
+
+    errors = np.array(errors)
+    abs_ce_errors = np.sqrt(errors[:,0] ** 2 + errors[:,1] ** 2)
+    abs_le_errors = np.abs(errors[:,2])
+
+    stats["absolute_ce50"] = _compute_value_at_p_level(abs_ce_errors, 0.50)
+    stats["absolute_le50"] = _compute_value_at_p_level(abs_le_errors, 0.50)
+    stats["absolute_ce90"] = _compute_value_at_p_level(abs_ce_errors, 0.90)
+    stats["absolute_le90"] = _compute_value_at_p_level(abs_le_errors, 0.90)
+    
+    rel_errors = np.array(rel_errors)
+    rel_ce_errors = np.sqrt(rel_errors[:,0] ** 2 + rel_errors[:,1] ** 2)
+    rel_le_errors = np.abs(rel_errors[:,2])
+
+    stats["relative_ce50"] = _compute_value_at_p_level(rel_ce_errors, 0.50)
+    stats["relative_le50"] = _compute_value_at_p_level(rel_le_errors, 0.50)
+    stats["relative_ce90"] = _compute_value_at_p_level(rel_ce_errors, 0.90)
+    stats["relative_le90"] = _compute_value_at_p_level(rel_le_errors, 0.90)
+
     return stats
+
+
+def _compute_value_at_p_level(samples, p=0.90):
+    # https://www.asprs.org/a/publications/proceedings/IGTF2016/IGTF2016-000255.pdf
+    n = len(samples)
+    if n < 5:
+        return -1
+    if p >= 0.90 and n < 7:
+        return -1
+
+    y = np.sort(samples)
+
+    kprime = int(np.floor((n + 1) * p)) - 1 # arrays are 0-indexed
+
+    if not ((n + 1) * p).is_integer():
+        kml = kprime + 0.5
+    else:
+        kml = kprime
+    
+    i = int(np.floor(kml)) - 1
+    j = int(np.ceil(kml)) - 1
+
+    return 0.5 * (y[i] + y[j])
 
 
 def gps_errors(reconstructions):
     all_errors = []
+    rel_errors = []
+
     for rec in reconstructions:
         all_errors += _gps_errors(rec)
-    return _gps_gcp_errors_stats(all_errors)
+        rel_errors += _gps_relative_errors(rec)
+    
+    return _gps_gcp_errors_stats(all_errors, rel_errors)
 
 
 def gcp_errors(data: DataSetBase, reconstructions):
     all_errors = []
+    rel_errors = []
 
-    gcp = data.load_ground_control_points()
-    if not gcp:
+    gcps = data.load_ground_control_points()
+    if not gcps:
         return {}
 
-    all_errors = []
-    for gcp in gcp:
+    def triangulate(gcp):
         if not gcp.coordinates.has_value:
-            continue
+            return None
 
         for rec in reconstructions:
             triangulated = multiview.triangulate_gcp(gcp, rec.shots, 1.0, 0.1)
@@ -90,11 +163,28 @@ def gcp_errors(data: DataSetBase, reconstructions):
             else:
                 break
 
-        if triangulated is None:
-            continue
-        all_errors.append(triangulated - gcp.coordinates.value)
+        return triangulated
 
-    return _gps_gcp_errors_stats(all_errors)
+    triangulated = list(map(triangulate, gcps))
+
+    for i in range(0, len(gcps)):
+        gcp = gcps[i]
+        if triangulated[i] is None:
+            continue
+
+        all_errors.append(triangulated[i] - gcp.coordinates.value)
+
+        if i < len(gcps) - 1:
+            gcp_b = gcps[i + 1]
+            if triangulated[i + 1] is None:
+                continue
+            
+            measured_v = gcp.coordinates.value - gcp_b.coordinates.value
+            computed_v = triangulated[i] - triangulated[i + 1]
+
+            rel_errors.append(measured_v - computed_v)
+
+    return _gps_gcp_errors_stats(all_errors, rel_errors)
 
 
 def _compute_errors(reconstructions, tracks_manager):
@@ -286,7 +376,7 @@ def processing_statistics(data: DataSet, reconstructions):
     else:
         stats["start_date"] = "unknown"
         stats["end_date"] = "unknown"
-        
+
     default_max = 1e30
     min_x, min_y, max_x, max_y = default_max, default_max, 0, 0
     for rec in reconstructions:

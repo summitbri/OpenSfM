@@ -164,8 +164,7 @@ class Report:
 
         rows = [
             #["Dataset", self.dataset_name],
-            ["Start Date", self.stats["processing_statistics"]["start_date"]],
-            ["End Date", self.stats["processing_statistics"]["end_date"]],
+            ["Date", self.stats["processing_statistics"]["date"]],
             [
                 "Area Covered",
                 f"{self.stats['processing_statistics']['area']/1e6:.6f} km²",
@@ -175,6 +174,8 @@ class Report:
                 #f"{self.stats['processing_statistics']['steps_times']['Total Time']:.2f} seconds",
                 self.stats['odm_processing_statistics']['total_time_human'],
             ],
+            ["Capture Start", self.stats["processing_statistics"]["start_date"]],
+            ["Capture End", self.stats["processing_statistics"]["end_date"]],
         ]
         self._make_table(None, rows, True)
         self.pdf.set_xy(self.margin, self.pdf.get_y() + self.margin)
@@ -255,7 +256,7 @@ class Report:
         self._make_table(None, rows, True)
         self.pdf.set_xy(self.margin, self.pdf.get_y() + self.margin / 2)
 
-        topview_height = 130
+        topview_height = 110
         topview_grids = [
             f for f in self.io_handler.ls(self.output_path) if f.startswith("topview")
         ]
@@ -280,6 +281,7 @@ class Report:
         self._make_section("GPS/GCP Errors Details")
 
         # GPS
+        table_count = 0
         for error_type in ["gps", "gcp"]:
             rows = []
             columns_names = [error_type.upper(), "Mean", "Sigma", "RMS Error"]
@@ -302,6 +304,50 @@ class Report:
             )
             self._make_table(columns_names, rows)
             self.pdf.set_xy(self.margin, self.pdf.get_y() + self.margin / 2)
+            table_count += 1
+
+        if table_count > 0:
+            error_type = "gps" if table_count == 1 else "gcp"
+            
+            r_ce90 = self.stats[error_type + "_errors"]["relative_ce90"]
+            r_le90 = self.stats[error_type + "_errors"]["relative_le90"]
+            a_ce90 = self.stats[error_type + "_errors"]["absolute_ce90"]
+            a_le90 = self.stats[error_type + "_errors"]["absolute_le90"]
+
+            r_ce50 = self.stats[error_type + "_errors"]["relative_ce50"]
+            r_le50 = self.stats[error_type + "_errors"]["relative_le50"]
+            a_ce50 = self.stats[error_type + "_errors"]["absolute_ce50"]
+            a_le50 = self.stats[error_type + "_errors"]["absolute_le50"]
+
+            columns_names = ["", "Relative (meters)", "Absolute (meters)"]
+            rows = []
+            if a_ce90 > 0 and a_le90 > 0:
+                rows += [[
+                    "Horizontal Accuracy (CE90)",
+                    f"{r_ce90:.3f}",
+                    f"{a_ce90:.3f}",
+                ],[
+                    "Vertical Accuracy (LE90)",
+                    f"{r_le90:.3f}",
+                    f"{a_le90:.3f}",
+                ]]
+
+            if a_ce50 > 0 and a_le50 > 0:
+                rows += [[
+                    "Horizontal Accuracy (CE50)",
+                    f"{r_ce50:.3f}",
+                    f"{a_ce50:.3f}",
+                ],[
+                    "Vertical Accuracy (LE50)",
+                    f"{r_le50:.3f}",
+                    f"{a_le50:.3f}",
+                ]]
+            
+            if rows:
+                if table_count > 1:
+                    self.add_page_break()
+                self._make_table(columns_names, rows, True)
+                self.pdf.set_xy(self.margin, self.pdf.get_y() + self.margin / 2)
 
         self.pdf.set_xy(self.margin, self.pdf.get_y() + self.margin / 2)
 
