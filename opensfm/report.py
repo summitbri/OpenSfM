@@ -308,45 +308,24 @@ class Report:
 
         if table_count > 0:
             error_type = "gps" if table_count == 1 else "gcp"
-            
-            r_ce90 = self.stats[error_type + "_errors"]["relative_ce90"]
-            r_le90 = self.stats[error_type + "_errors"]["relative_le90"]
+
             a_ce90 = self.stats[error_type + "_errors"]["absolute_ce90"]
             a_le90 = self.stats[error_type + "_errors"]["absolute_le90"]
 
-            r_ce50 = self.stats[error_type + "_errors"]["relative_ce50"]
-            r_le50 = self.stats[error_type + "_errors"]["relative_le50"]
-            a_ce50 = self.stats[error_type + "_errors"]["absolute_ce50"]
-            a_le50 = self.stats[error_type + "_errors"]["absolute_le50"]
-
-            columns_names = ["", "Relative (meters)", "Absolute (meters)"]
             rows = []
             if a_ce90 > 0 and a_le90 > 0:
                 rows += [[
-                    "Horizontal Accuracy (CE90)",
-                    f"{r_ce90:.3f}",
+                    "Horizontal Accuracy CE90 (meters)",
                     f"{a_ce90:.3f}",
                 ],[
-                    "Vertical Accuracy (LE90)",
-                    f"{r_le90:.3f}",
+                    "Vertical Accuracy LE90 (meters)",
                     f"{a_le90:.3f}",
-                ]]
-
-            if a_ce50 > 0 and a_le50 > 0:
-                rows += [[
-                    "Horizontal Accuracy (CE50)",
-                    f"{r_ce50:.3f}",
-                    f"{a_ce50:.3f}",
-                ],[
-                    "Vertical Accuracy (LE50)",
-                    f"{r_le50:.3f}",
-                    f"{a_le50:.3f}",
                 ]]
             
             if rows:
                 if table_count > 1:
                     self.add_page_break()
-                self._make_table(columns_names, rows, True)
+                self._make_table(None, rows, True)
                 self.pdf.set_xy(self.margin, self.pdf.get_y() + self.margin / 2)
 
         self.pdf.set_xy(self.margin, self.pdf.get_y() + self.margin / 2)
