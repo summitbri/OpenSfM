@@ -323,8 +323,8 @@ class Report:
                 ]]
             
             if rows:
-                if table_count > 1:
-                    self.add_page_break()
+                # if table_count > 1:
+                #     self.add_page_break()
                 self._make_table(None, rows, True)
                 self.pdf.set_xy(self.margin, self.pdf.get_y() + self.margin / 2)
 
@@ -506,7 +506,7 @@ class Report:
             os.path.join(self.output_path, "overlap_diagram_legend.png"), 3
         )
 
-        self.pdf.set_xy(self.margin, self.pdf.get_y() + self.margin)
+        self.pdf.set_xy(self.margin, self.pdf.get_y() + self.margin / 2)
 
 
     def _add_image_label(self, text):
