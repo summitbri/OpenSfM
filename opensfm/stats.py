@@ -5,6 +5,7 @@ import random
 import statistics
 from collections import defaultdict
 from functools import lru_cache
+from itertools import product
 import random
 
 import matplotlib as mpl
@@ -12,7 +13,7 @@ import matplotlib.cm as cm
 import matplotlib.colors as colors
 import matplotlib.pyplot as plt
 import numpy as np
-from opensfm import io, multiview, feature_loader, pymap
+from opensfm import io, multiview, feature_loader, pymap, pygeometry
 from opensfm.dataset import DataSet, DataSetBase
 
 RESIDUAL_PIXEL_CUTOFF = 4
@@ -90,11 +91,11 @@ def _gps_gcp_errors_stats(errors):
     stats["average_error"] = average
 
     errors = np.array(errors)
-    abs_ce_errors = np.sqrt(errors[:,0] ** 2 + errors[:,1] ** 2)
-    abs_le_errors = np.abs(errors[:,2])
+    ce_errors = np.sqrt(errors[:,0] ** 2 + errors[:,1] ** 2)
+    le_errors = np.abs(errors[:,2])
 
-    stats["absolute_ce90"] = _compute_value_at_p_level(abs_ce_errors, 0.90)
-    stats["absolute_le90"] = _compute_value_at_p_level(abs_le_errors, 0.90)
+    stats["ce90"] = _compute_value_at_p_level(ce_errors, 0.90)
+    stats["le90"] = _compute_value_at_p_level(le_errors, 0.90)
     
     return stats
 
@@ -119,6 +120,79 @@ def _compute_value_at_p_level(samples, p=0.90):
     j = int(np.ceil(kml)) - 1
 
     return 0.5 * (y[i] + y[j])
+
+
+def td_errors(data: DataSetBase, tracks_manager, reconstructions):
+    errors = []
+    reproj_threshold = data.config["triangulation_threshold"]
+    min_ray_angle_degrees = data.config["triangulation_min_ray_angle"]
+
+    for rec in reconstructions:
+        reproj_errors = rec.map.compute_reprojection_errors(
+            tracks_manager,
+            pymap.ErrorType.Pixel
+        )
+
+        # For each point (cap to 1000 samples)
+        # get the first (up to) 3 cameras that
+        # triangulate a point and sample around
+        # the projection error radius (4 points)
+        # by computing all triangulation permutations
+
+        for p in list(rec.points.values())[:1000]:
+            track_obs = tracks_manager.get_track_observations(p.id)
+
+            err_perms = []
+
+            # Add error projection permutations
+            for shot_id, obs in track_obs.items():
+                rerr = reproj_errors[shot_id][p.id]
+                err_perms.append([
+                    rerr * np.array([1, 1]),
+                    rerr * np.array([-1, 1]),
+                    rerr * np.array([1, -1]),
+                    rerr * np.array([-1, -1])
+                ])
+                if len(err_perms) >= 3:
+                    break
+            
+            # Calculate the cartesian product (try all possibilities)
+            err_products = np.array(list(product(*err_perms)))
+            
+            # Triangulate
+            ray_errors = []
+            for err_prod in err_products:
+
+                os, bs = [], []
+                i = 0
+                
+                for shot_id, obs in track_obs.items():
+                    shot = rec.shots[shot_id]
+                    os.append(shot.pose.get_origin())
+
+                    reprojected_obs = obs.point + err_prod[i]
+                    b = shot.camera.pixel_bearing(np.array(reprojected_obs))
+                    r = shot.pose.get_rotation_matrix().T
+                    bs.append(r.dot(b))
+
+                    i += 1
+
+                    if i >= 3:
+                        break
+                
+                if len(os) >= 2:
+                    thresholds = len(os) * [reproj_threshold]
+                    valid_triangulation, X = pygeometry.triangulate_bearings_midpoint(
+                        os, bs, thresholds, np.radians(min_ray_angle_degrees)
+                    )
+                    if valid_triangulation:
+                        ray_errors.append(X - p.coordinates)
+            
+            # Take the max. This is the maximum 3D error estimate
+            # for this point
+            errors.append((np.max(np.array(ray_errors), axis=0)))
+
+    return _gps_gcp_errors_stats(errors)
 
 
 def gps_errors(reconstructions):
@@ -469,6 +543,7 @@ def compute_all_statistics(data: DataSet, tracks_manager, reconstructions):
     stats["rig_errors"] = rig_statistics(data, reconstructions)
     stats["gps_errors"] = gps_errors(reconstructions)
     stats["gcp_errors"] = gcp_errors(data, reconstructions)
+    stats["3d_errors"] = td_errors(data, tracks_manager, reconstructions)
 
     return stats
 

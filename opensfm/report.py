@@ -278,11 +278,11 @@ class Report:
         self.pdf.set_xy(self.margin, self.pdf.get_y() + 2 * self.margin)
 
     def make_gps_details(self):
-        self._make_section("GPS/GCP Errors Details")
+        self._make_section("GPS/GCP/3D Errors Details")
 
         # GPS
         table_count = 0
-        for error_type in ["gps", "gcp"]:
+        for error_type in ["gps", "gcp", "3d"]:
             rows = []
             columns_names = [error_type.upper(), "Mean", "Sigma", "RMS Error"]
             if "average_error" not in self.stats[error_type + "_errors"]:
@@ -307,25 +307,29 @@ class Report:
             table_count += 1
 
         if table_count > 0:
-            error_type = "gps" if table_count == 1 else "gcp"
+            abs_error_type = "gps" if table_count == 2 else "gcp"
 
-            a_ce90 = self.stats[error_type + "_errors"]["absolute_ce90"]
-            a_le90 = self.stats[error_type + "_errors"]["absolute_le90"]
+            a_ce90 = self.stats[abs_error_type + "_errors"]["ce90"]
+            a_le90 = self.stats[abs_error_type + "_errors"]["le90"]
+            r_ce90 = self.stats["3d_errors"]["ce90"]
+            r_le90 = self.stats["3d_errors"]["le90"]
 
             rows = []
             if a_ce90 > 0 and a_le90 > 0:
                 rows += [[
                     "Horizontal Accuracy CE90 (meters)",
                     f"{a_ce90:.3f}",
+                    f"{r_ce90:.3f}" if r_ce90 > 0 else "-",
                 ],[
                     "Vertical Accuracy LE90 (meters)",
                     f"{a_le90:.3f}",
+                    f"{r_le90:.3f}" if r_le90 > 0 else "-",
                 ]]
             
             if rows:
-                # if table_count > 1:
-                #     self.add_page_break()
-                self._make_table(None, rows, True)
+                if table_count > 2:
+                    self.add_page_break()
+                self._make_table(["", "Absolute", "Relative"], rows, True)
                 self.pdf.set_xy(self.margin, self.pdf.get_y() + self.margin / 2)
 
         self.pdf.set_xy(self.margin, self.pdf.get_y() + self.margin / 2)
