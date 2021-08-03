@@ -504,7 +504,7 @@ class Report:
         self._make_section("Survey Data")
 
         self._make_centered_image(
-            os.path.join(self.output_path, "overlap.png"), 110
+            os.path.join(self.output_path, "overlap.png"), 90
         )
         self._make_centered_image(
             os.path.join(self.output_path, "overlap_diagram_legend.png"), 3
