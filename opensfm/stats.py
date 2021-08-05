@@ -146,6 +146,9 @@ def td_errors(data: DataSetBase, tracks_manager, reconstructions):
 
             # Add error projection permutations
             for shot_id, obs in track_obs.items():
+                if not shot_id in reproj_errors:
+                    continue
+
                 rerr = reproj_errors[shot_id][p.id]
                 err_perms.append([
                     rerr * np.array([1, 1]),
@@ -167,6 +170,9 @@ def td_errors(data: DataSetBase, tracks_manager, reconstructions):
                 i = 0
                 
                 for shot_id, obs in track_obs.items():
+                    if not shot_id in reproj_errors:
+                        continue
+
                     shot = rec.shots[shot_id]
                     os.append(shot.pose.get_origin())
 
