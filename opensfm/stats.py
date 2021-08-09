@@ -196,7 +196,8 @@ def td_errors(data: DataSetBase, tracks_manager, reconstructions):
             
             # Take the max. This is the maximum 3D error estimate
             # for this point
-            errors.append((np.max(np.array(ray_errors), axis=0)))
+            if len(ray_errors) > 0:
+                errors.append((np.max(np.array(ray_errors), axis=0)))
 
     return _gps_gcp_errors_stats(errors)
 
