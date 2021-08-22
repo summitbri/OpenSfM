@@ -174,6 +174,8 @@ class Report:
                 #f"{self.stats['processing_statistics']['steps_times']['Total Time']:.2f} seconds",
                 self.stats['odm_processing_statistics']['total_time_human'],
             ],
+            ["Capture Start", self.stats["processing_statistics"]["start_date"]],
+            ["Capture End", self.stats["processing_statistics"]["end_date"]],
         ]
         self._make_table(None, rows, True)
         self.pdf.set_xy(self.margin, self.pdf.get_y() + self.margin)
@@ -212,10 +214,10 @@ class Report:
                 "Reconstructed Points (Sparse)",
                 f"{rec_points} over {init_points} points ({rec_points/init_points*100:.1f}%)",
             ],
-            [
-                "Reconstructed Components",
-                f"{self.stats['reconstruction_statistics']['components']} component",
-            ],
+            # [
+            #     "Reconstructed Components",
+            #     f"{self.stats['reconstruction_statistics']['components']} component",
+            # ],
             [
                 "Detected Features",
                 f"{self.stats['features_statistics']['detected_features']['median']:,} features",
@@ -254,7 +256,7 @@ class Report:
         self._make_table(None, rows, True)
         self.pdf.set_xy(self.margin, self.pdf.get_y() + self.margin / 2)
 
-        topview_height = 130
+        topview_height = 110
         topview_grids = [
             f for f in self.io_handler.ls(self.output_path) if f.startswith("topview")
         ]
@@ -276,10 +278,11 @@ class Report:
         self.pdf.set_xy(self.margin, self.pdf.get_y() + 2 * self.margin)
 
     def make_gps_details(self):
-        self._make_section("GPS/GCP Errors Details")
+        self._make_section("GPS/GCP/3D Errors Details")
 
         # GPS
-        for error_type in ["gps", "gcp"]:
+        table_count = 0
+        for error_type in ["gps", "gcp", "3d"]:
             rows = []
             columns_names = [error_type.upper(), "Mean", "Sigma", "RMS Error"]
             if "average_error" not in self.stats[error_type + "_errors"]:
@@ -301,6 +304,33 @@ class Report:
             )
             self._make_table(columns_names, rows)
             self.pdf.set_xy(self.margin, self.pdf.get_y() + self.margin / 2)
+            table_count += 1
+
+        if table_count > 0:
+            abs_error_type = "gps" if table_count == 2 else "gcp"
+
+            a_ce90 = self.stats[abs_error_type + "_errors"]["ce90"]
+            a_le90 = self.stats[abs_error_type + "_errors"]["le90"]
+            r_ce90 = self.stats["3d_errors"]["ce90"]
+            r_le90 = self.stats["3d_errors"]["le90"]
+
+            rows = []
+            if a_ce90 > 0 and a_le90 > 0:
+                rows += [[
+                    "Horizontal Accuracy CE90 (meters)",
+                    f"{a_ce90:.3f}",
+                    f"{r_ce90:.3f}" if r_ce90 > 0 else "-",
+                ],[
+                    "Vertical Accuracy LE90 (meters)",
+                    f"{a_le90:.3f}",
+                    f"{r_le90:.3f}" if r_le90 > 0 else "-",
+                ]]
+            
+            if rows:
+                if table_count > 2:
+                    self.add_page_break()
+                self._make_table(["", "Absolute", "Relative"], rows, True)
+                self.pdf.set_xy(self.margin, self.pdf.get_y() + self.margin / 2)
 
         self.pdf.set_xy(self.margin, self.pdf.get_y() + self.margin / 2)
 
@@ -474,13 +504,13 @@ class Report:
         self._make_section("Survey Data")
 
         self._make_centered_image(
-            os.path.join(self.output_path, "overlap.png"), 110
+            os.path.join(self.output_path, "overlap.png"), 90
         )
         self._make_centered_image(
             os.path.join(self.output_path, "overlap_diagram_legend.png"), 3
         )
 
-        self.pdf.set_xy(self.margin, self.pdf.get_y() + self.margin)
+        self.pdf.set_xy(self.margin, self.pdf.get_y() + self.margin / 2)
 
 
     def _add_image_label(self, text):

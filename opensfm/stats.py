@@ -5,6 +5,7 @@ import random
 import statistics
 from collections import defaultdict
 from functools import lru_cache
+from itertools import product
 import random
 
 import matplotlib as mpl
@@ -12,7 +13,7 @@ import matplotlib.cm as cm
 import matplotlib.colors as colors
 import matplotlib.pyplot as plt
 import numpy as np
-from opensfm import io, multiview, feature_loader, pymap
+from opensfm import io, multiview, feature_loader, pymap, pygeometry
 from opensfm.dataset import DataSet, DataSetBase
 
 RESIDUAL_PIXEL_CUTOFF = 4
@@ -41,6 +42,33 @@ def _gps_errors(reconstruction):
             )
     return errors
 
+def _gps_relative_errors(reconstruction):
+    errors = []
+
+    shotIds = list(reconstruction.shots)
+    for i in range(0, len(shotIds) - 1):
+        s1 = reconstruction.shots[shotIds[i]]
+        s2 = reconstruction.shots[shotIds[i + 1]]
+        if s1.metadata.gps_position.has_value and s2.metadata.gps_position.has_value:
+            measured_v = s1.metadata.gps_position.value - s2.metadata.gps_position.value
+            computed_v = s1.pose.get_origin() - s2.pose.get_origin()
+
+            errors.append(measured_v - computed_v)
+
+    return errors
+
+def _gps_accuracy(reconstructions):
+    accuracy = []
+
+    for reconstruction in reconstructions:
+        for shot in reconstruction.shots.values():
+            if shot.metadata.gps_accuracy.has_value:
+                accuracy.append(shot.metadata.gps_accuracy.value)
+
+    if len(accuracy) > 0:
+        return np.mean(accuracy)
+    else:
+        return 15.0
 
 def _gps_gcp_errors_stats(errors):
     if not errors:
@@ -61,13 +89,125 @@ def _gps_gcp_errors_stats(errors):
         "z": math.sqrt(m_squared[2]),
     }
     stats["average_error"] = average
+
+    errors = np.array(errors)
+    ce_errors = np.sqrt(errors[:,0] ** 2 + errors[:,1] ** 2)
+    le_errors = np.abs(errors[:,2])
+
+    stats["ce90"] = _compute_value_at_p_level(ce_errors, 0.90)
+    stats["le90"] = _compute_value_at_p_level(le_errors, 0.90)
+    
     return stats
+
+
+def _compute_value_at_p_level(samples, p=0.90):
+    # https://www.asprs.org/a/publications/proceedings/IGTF2016/IGTF2016-000255.pdf
+    n = len(samples)
+    if n < 1:
+        return -1
+    y = np.sort(samples)
+    if n < 7:
+        return y[-1]
+
+    kprime = int(np.floor((n + 1) * p)) - 1 # arrays are 0-indexed
+
+    if not ((n + 1) * p).is_integer():
+        kml = kprime + 0.5
+    else:
+        kml = kprime
+    
+    i = int(np.floor(kml)) - 1
+    j = int(np.ceil(kml)) - 1
+
+    return 0.5 * (y[i] + y[j])
+
+
+def td_errors(data: DataSetBase, tracks_manager, reconstructions):
+    errors = []
+    reproj_threshold = data.config["triangulation_threshold"]
+    min_ray_angle_degrees = data.config["triangulation_min_ray_angle"]
+
+    for rec in reconstructions:
+        reproj_errors = rec.map.compute_reprojection_errors(
+            tracks_manager,
+            pymap.ErrorType.Pixel
+        )
+
+        # For each point (cap to 1000 samples)
+        # get the first (up to) 3 cameras that
+        # triangulate a point and sample around
+        # the projection error radius (4 points)
+        # by computing all triangulation permutations
+
+        for p in list(rec.points.values())[:1000]:
+            track_obs = tracks_manager.get_track_observations(p.id)
+
+            err_perms = []
+
+            # Add error projection permutations
+            for shot_id, obs in track_obs.items():
+                if not shot_id in reproj_errors:
+                    continue
+
+                rerr = reproj_errors[shot_id][p.id]
+                err_perms.append([
+                    rerr * np.array([1, 1]),
+                    rerr * np.array([-1, 1]),
+                    rerr * np.array([1, -1]),
+                    rerr * np.array([-1, -1])
+                ])
+                if len(err_perms) >= 3:
+                    break
+            
+            # Calculate the cartesian product (try all possibilities)
+            err_products = np.array(list(product(*err_perms)))
+            
+            # Triangulate
+            ray_errors = []
+            for err_prod in err_products:
+
+                os, bs = [], []
+                i = 0
+                
+                for shot_id, obs in track_obs.items():
+                    if not shot_id in reproj_errors:
+                        continue
+
+                    shot = rec.shots[shot_id]
+                    os.append(shot.pose.get_origin())
+
+                    reprojected_obs = obs.point + err_prod[i]
+                    b = shot.camera.pixel_bearing(np.array(reprojected_obs))
+                    r = shot.pose.get_rotation_matrix().T
+                    bs.append(r.dot(b))
+
+                    i += 1
+
+                    if i >= 3:
+                        break
+                
+                if len(os) >= 2:
+                    thresholds = len(os) * [reproj_threshold]
+                    valid_triangulation, X = pygeometry.triangulate_bearings_midpoint(
+                        os, bs, thresholds, np.radians(min_ray_angle_degrees)
+                    )
+                    if valid_triangulation:
+                        ray_errors.append(X - p.coordinates)
+            
+            # Take the max. This is the maximum 3D error estimate
+            # for this point
+            if len(ray_errors) > 0:
+                errors.append((np.max(np.array(ray_errors), axis=0)))
+
+    return _gps_gcp_errors_stats(errors)
 
 
 def gps_errors(reconstructions):
     all_errors = []
+
     for rec in reconstructions:
         all_errors += _gps_errors(rec)
+
     return _gps_gcp_errors_stats(all_errors)
 
 
@@ -90,6 +230,7 @@ def gcp_errors(data: DataSetBase, reconstructions):
             else:
                 break
 
+        # pyre-fixme[61]: `triangulated` may not be initialized here.
         if triangulated is None:
             continue
         all_errors.append(triangulated - gcp.coordinates.value)
@@ -279,6 +420,14 @@ def processing_statistics(data: DataSet, reconstructions):
     except FileNotFoundError:
         stats["date"] = "unknown"
 
+    start_ct, end_ct = start_end_capture_time(reconstructions)
+    if start_ct is not None and end_ct is not None:
+        stats["start_date"] = datetime.datetime.fromtimestamp(start_ct).strftime("%d/%m/%Y at %H:%M:%S")
+        stats["end_date"] = datetime.datetime.fromtimestamp(end_ct).strftime("%d/%m/%Y at %H:%M:%S")
+    else:
+        stats["start_date"] = "unknown"
+        stats["end_date"] = "unknown"
+
     default_max = 1e30
     min_x, min_y, max_x, max_y = default_max, default_max, 0, 0
     for rec in reconstructions:
@@ -401,6 +550,7 @@ def compute_all_statistics(data: DataSet, tracks_manager, reconstructions):
     stats["rig_errors"] = rig_statistics(data, reconstructions)
     stats["gps_errors"] = gps_errors(reconstructions)
     stats["gcp_errors"] = gcp_errors(data, reconstructions)
+    stats["3d_errors"] = td_errors(data, tracks_manager, reconstructions)
 
     return stats
 
@@ -932,3 +1082,22 @@ def decimate_points(reconstructions, max_num_points):
 
             for point_id in random_ids:
                 rec.remove_point(point_id)
+
+
+def start_end_capture_time(reconstructions):
+    end_ct = float('-inf')
+    start_ct = float('inf')
+
+    for reconstruction in reconstructions:
+        for shot in reconstruction.shots.values():
+            if shot.metadata.capture_time.has_value:
+                v = shot.metadata.capture_time.value
+                if v > end_ct:
+                    end_ct = v
+                if v < start_ct:
+                    start_ct = v
+
+    if end_ct != float('-inf') and start_ct != float('inf'):
+        return (start_ct, end_ct)
+    else:
+        return (None, None)
