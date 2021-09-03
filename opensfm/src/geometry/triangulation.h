@@ -71,7 +71,7 @@ std::pair<bool, Eigen::Matrix<T, 3, 1>> TriangulateTwoBearingsMidpointSolve(
   #ifdef __aarch64__
   if (std::abs<T>(det) < eps) {
   #else
-  if (std::abs(det) < eps) {
+  if (abs(det) < eps) {
   #endif
     return std::make_pair(false, Eigen::Matrix<T, 3, 1>());
   }
