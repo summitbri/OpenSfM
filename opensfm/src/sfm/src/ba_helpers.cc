@@ -402,7 +402,7 @@ void BAHelpers::AddGCPToBundle(
       const auto point_type = point.has_altitude_
                                   ? bundle::PositionConstraintType::XYZ
                                   : bundle::PositionConstraintType::XY;
-      ba.AddPointPositionWorld(point_id, point.coordinates_.Value(), 0.1,
+      ba.AddPointPositionWorld(point_id, point.coordinates_.Value(), 0.01,
                                point_type);
     }
 
