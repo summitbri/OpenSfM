@@ -3,6 +3,7 @@ import math
 import os
 import random
 import statistics
+import json
 from collections import defaultdict
 from functools import lru_cache
 from itertools import product
@@ -15,6 +16,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from opensfm import io, multiview, feature_loader, pymap, pygeometry
 from opensfm.dataset import DataSet, DataSetBase
+from opensfm import features
 
 RESIDUAL_PIXEL_CUTOFF = 4
 
@@ -219,6 +221,8 @@ def gcp_errors(data: DataSetBase, reconstructions):
         return {}
 
     all_errors = []
+    gcp_stats = []
+
     for gcp in gcp:
         if not gcp.coordinates.has_value:
             continue
@@ -233,7 +237,38 @@ def gcp_errors(data: DataSetBase, reconstructions):
         # pyre-fixme[61]: `triangulated` may not be initialized here.
         if triangulated is None:
             continue
-        all_errors.append(triangulated - gcp.coordinates.value)
+
+        e = triangulated - gcp.coordinates.value
+        all_errors.append(e)
+
+        # Begin computation of GCP stats
+        observations = []
+        for i, obs in enumerate(gcp.observations):
+            shot = rec.shots[obs.shot_id]
+
+            reprojected = shot.project(gcp.coordinates.value)
+            annotated = obs.projection
+
+            r_pixel = features.denormalized_image_coordinates(np.array([[reprojected[0], reprojected[1]]]), shot.camera.width, shot.camera.height)[0]
+            a_pixel = features.denormalized_image_coordinates(np.array([[annotated[0], annotated[1]]]), shot.camera.width, shot.camera.height)[0]
+
+            observations.append({
+                'shot_id': obs.shot_id,
+                'annotated': list(a_pixel),
+                'reprojected': list(r_pixel)
+            })
+
+        gcp_stats.append({
+            'id': gcp.id,
+            'coordinates': list(gcp.coordinates.value),
+            'observations': observations,
+            'error': list(e)
+        })
+
+    with open(os.path.join(data.data_path, "stats", "ground_control_points.json"), 'w') as f:
+        f.write(json.dumps(gcp_stats, indent=4))
+    
+    # End computation of GCP stats
 
     return _gps_gcp_errors_stats(all_errors)
 

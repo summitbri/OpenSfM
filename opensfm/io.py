@@ -722,7 +722,7 @@ def _read_gcp_list_lines(lines, projection, reference, exif):
                 lon, lat = easting, northing
 
             point = pymap.GroundControlPoint()
-            point.id = "unnamed-%d" % len(points)
+            point.id = "GCP-%d" % len(points)
             point.lla = {"latitude": lat, "longitude": lon, "altitude": alt}
             point.has_altitude = has_altitude
 
