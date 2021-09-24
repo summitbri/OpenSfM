@@ -250,8 +250,13 @@ def gcp_errors(data: DataSetBase, reconstructions):
             annotated = obs.projection
 
             r_pixel = features.denormalized_image_coordinates(np.array([[reprojected[0], reprojected[1]]]), shot.camera.width, shot.camera.height)[0]
-            a_pixel = features.denormalized_image_coordinates(np.array([[annotated[0], annotated[1]]]), shot.camera.width, shot.camera.height)[0]
+            r_pixel[0] /= shot.camera.width
+            r_pixel[1] /= shot.camera.height
 
+            a_pixel = features.denormalized_image_coordinates(np.array([[annotated[0], annotated[1]]]), shot.camera.width, shot.camera.height)[0]
+            a_pixel[0] /= shot.camera.width
+            a_pixel[1] /= shot.camera.height
+            
             observations.append({
                 'shot_id': obs.shot_id,
                 'annotated': list(a_pixel),
