@@ -241,15 +241,12 @@ def load_reconstruction_shots(meta_data):
         reconstruction = data.load_reconstruction()
         for index, partial_reconstruction in enumerate(reconstruction):
             key = PartialReconstruction(submodel_path, index)
-            
-            # Fix: https://github.com/mapillary/OpenSfM/pull/750
-            if sys.platform == 'win32':
-                reconstruction_shots[key] = {}
-                for shot_id in partial_reconstruction.shots:
-                    reconstruction_shots[key][shot_id] = copy.deepcopy(partial_reconstruction.shots[shot_id])
-                    reconstruction_shots[key][shot_id].metadata = partial_reconstruction.shots[shot_id].metadata
-            else:
-                reconstruction_shots[key] = partial_reconstruction.shots
+
+            # Always copy from ShotView
+            reconstruction_shots[key] = {}
+            for shot_id in partial_reconstruction.shots:
+                reconstruction_shots[key][shot_id] = copy.deepcopy(partial_reconstruction.shots[shot_id])
+                reconstruction_shots[key][shot_id].metadata = partial_reconstruction.shots[shot_id].metadata
 
 
     return reconstruction_shots
