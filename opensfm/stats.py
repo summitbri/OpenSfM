@@ -244,6 +244,8 @@ def gcp_errors(data: DataSetBase, reconstructions):
         # Begin computation of GCP stats
         observations = []
         for i, obs in enumerate(gcp.observations):
+            if not obs.shot_id in rec.shots:
+                continue
             shot = rec.shots[obs.shot_id]
 
             reprojected = shot.project(gcp.coordinates.value)
