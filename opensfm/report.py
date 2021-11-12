@@ -96,6 +96,12 @@ class Report:
         with self.io_handler.open_rt(file_path) as fin:
             return io.json_load(fin)
 
+    def _read_gcp_stats_file(self, filename):
+        file_path = os.path.join(self.output_path, "ground_control_points.json")
+        
+        with self.io_handler.open_rt(file_path) as fin:
+            return io.json_load(fin)
+
     def _make_section(self, title):
         self.pdf.set_font("Helvetica", "B", self.h1)
         self.pdf.set_text_color(*self.mapi_dark_grey)
@@ -276,6 +282,25 @@ class Report:
         rows = [formatted_floats]
         self._make_table(columns_names, rows)
         self.pdf.set_xy(self.margin, self.pdf.get_y() + 2 * self.margin)
+
+    def make_gcp_error_details(self):
+        self._make_section("Ground Control Point Error")
+
+        gcp_stats = self._read_gcp_stats_file("ground_control_points.json")
+
+        rows = []
+        column_names = ["ID", "Error X (m)", "Error Y (m)", "Error Z (m)"]
+
+        for gcp in gcp_stats:
+            row = [gcp["id"]]
+            row.append(f"{gcp['error'][0]:.3f}")
+            row.append(f"{gcp['error'][1]:.3f}")
+            row.append(f"{gcp['error'][2]:.3f}")
+
+            rows.append(row)
+
+        self._make_table(column_names, rows)
+        self.pdf.set_xy(self.margin, self.pdf.get_y() + self.margin / 2)
 
     def make_gps_details(self):
         self._make_section("GPS/GCP/3D Errors Details")
@@ -583,7 +608,12 @@ class Report:
 
         if os.path.isfile(os.path.join(self.output_path, "overlap.png")):
             self.make_survey_data()
+        
         self.make_gps_details()
+
+        if os.path.isfile(os.path.join(self.output_path, "ground_control_points.json")):
+            self.make_gcp_error_details()
+
         self.add_page_break()
 
         self.make_features_details()
