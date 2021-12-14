@@ -3,16 +3,17 @@ from opensfm import reconstruction
 from opensfm.dataset_base import DataSetBase
 
 
-def run_dataset(data: DataSetBase, algorithm: reconstruction.ReconstructionAlgorithm):
+def run_dataset(data: DataSetBase):
     """Compute the SfM reconstruction."""
 
     tracks_manager = data.load_tracks_manager()
+    algorithm = data.config.get('reconstruction_algorithm', 'incremental')
 
-    if algorithm == reconstruction.ReconstructionAlgorithm.INCREMENTAL:
+    if algorithm == 'incremental':
         report, reconstructions = reconstruction.incremental_reconstruction(
             data, tracks_manager
         )
-    elif algorithm == reconstruction.ReconstructionAlgorithm.TRIANGULATION:
+    elif algorithm == 'triangulation':
         report, reconstructions = reconstruction.triangulation_reconstruction(
             data, tracks_manager
         )
