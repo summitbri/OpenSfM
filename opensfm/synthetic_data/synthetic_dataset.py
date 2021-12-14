@@ -5,7 +5,7 @@ import shelve
 from typing import Optional, Dict, Any, List, Tuple, Union
 
 import numpy as np
-from opensfm import tracking, features as oft, types, pysfm, pymap, pygeometry, io
+from opensfm import tracking, features as oft, types, pymap, pygeometry, io, geo
 from opensfm.dataset import DataSet
 
 
@@ -50,7 +50,8 @@ class SyntheticDataSet(DataSet):
     reconstruction: types.Reconstruction
     exifs: Dict[str, Any]
     features: Optional[SyntheticFeatures]
-    reference_lla: Dict[str, float]
+    reference: geo.TopocentricConverter
+    gcps: Optional[Dict[str, pymap.GroundControlPoint]]
 
     def __init__(
         self,
@@ -58,6 +59,7 @@ class SyntheticDataSet(DataSet):
         exifs: Dict[str, Any],
         features: Optional[SyntheticFeatures] = None,
         tracks_manager: Optional[pymap.TracksManager] = None,
+        gcps: Optional[Dict[str, pymap.GroundControlPoint]] = None,
         output_path: Optional[str] = None,
     ):
         data_path = "" if not output_path else output_path
@@ -67,10 +69,11 @@ class SyntheticDataSet(DataSet):
         super(SyntheticDataSet, self).__init__(data_path)
         self.reconstruction = reconstruction
         self.exifs = exifs
+        self.gcps = gcps
         self.features = features
         self.tracks_manager = tracks_manager
         self.image_list = list(reconstruction.shots.keys())
-        self.reference_lla = {"latitude": 47.0, "longitude": 6.0, "altitude": 0.0}
+        self.reference = reconstruction.reference
         self.matches = None
         self.config["use_altitude_tag"] = True
         self.config["align_method"] = "naive"
@@ -80,6 +83,10 @@ class SyntheticDataSet(DataSet):
 
     def load_camera_models(self) -> Dict[str, pygeometry.Camera]:
         return self.reconstruction.cameras
+
+    def save_camera_models(self, camera_models: Dict[str, pygeometry.Camera]) -> None:
+        for camera in camera_models.values():
+            self.reconstruction.add_camera(camera)
 
     def load_rig_cameras(self) -> Dict[str, pymap.RigCamera]:
         return self.reconstruction.rig_cameras
@@ -162,13 +169,19 @@ class SyntheticDataSet(DataSet):
             raise RuntimeError("No tracks manager for the synthetic dataset")
         return tracks_mgr
 
-    def invent_reference_lla(
+    def init_reference(
         self, images: Optional[List[str]] = None
-    ) -> Dict[str, float]:
-        return self.reference_lla
+    ) -> None:
+        pass
 
-    def load_reference_lla(self) -> Dict[str, float]:
-        return self.reference_lla
+    def load_reference(self) -> geo.TopocentricConverter:
+        return self.reference
 
-    def reference_lla_exists(self) -> bool:
+    def reference_exists(self) -> bool:
         return True
+
+    def load_ground_control_points(self) -> List[pymap.GroundControlPoint]:
+        if self.gcps:
+            return list(self.gcps.values())
+        else:
+            return []

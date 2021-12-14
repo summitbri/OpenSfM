@@ -7,7 +7,7 @@ from typing import Tuple
 import exifread
 import xmltodict as x2d
 from opensfm import pygeometry
-from opensfm.dataset import DataSetBase
+from opensfm.dataset_base import DataSetBase
 from opensfm.sensors import sensor_data
 
 logger = logging.getLogger(__name__)
@@ -58,7 +58,7 @@ def compute_focal(focal_35, focal, sensor_width, sensor_string) -> Tuple[float, 
         focal_ratio = focal_35 / 36.0  # 35mm film produces 36x24mm pictures.
     else:
         if not sensor_width:
-            sensor_width = sensor_data.get(sensor_string, None)
+            sensor_width = sensor_data().get(sensor_string, None)
         if sensor_width and focal:
             focal_ratio = focal / sensor_width
             focal_35 = 36.0 * focal_ratio
@@ -302,7 +302,7 @@ class EXIF:
         orientation = 1
         if "Image Orientation" in self.tags:
             value = self.tags.get("Image Orientation").values[0]
-            if type(value) == int:
+            if type(value) == int and value != 0:
                 orientation = value
         return orientation
 
@@ -588,6 +588,10 @@ def focal_xy_calibration(exif):
             "k4": 0.0,
             "k5": 0.0,
             "k6": 0.0,
+            "s0": 0.0,
+            "s1": 0.0,
+            "s2": 0.0,
+            "s3": 0.0,
         }
 
 
@@ -604,6 +608,12 @@ def default_calibration(data: DataSetBase):
         "p2": 0.0,
         "k3": 0.0,
         "k4": 0.0,
+        "k5": 0.0,
+        "k6": 0.0,
+        "s0": 0.0,
+        "s1": 0.0,
+        "s2": 0.0,
+        "s3": 0.0,
     }
 
 
@@ -616,6 +626,7 @@ def calibration_from_metadata(metadata, data: DataSetBase):
         or pt == "radial"
         or pt == "simple_radial"
         or pt == "fisheye62"
+        or pt == "fisheye624"
     ):
         calib = (
             hard_coded_calibration(metadata)
@@ -679,6 +690,26 @@ def camera_from_exif_metadata(
                 calib["k6"],
                 calib["p1"],
                 calib["p2"],
+            ],
+        )
+    elif calib_pt == "fisheye624":
+        camera = pygeometry.Camera.create_fisheye624(
+            calib["focal_x"],
+            calib["focal_y"] / calib["focal_x"],
+            [calib["c_x"], calib["c_y"]],
+            [
+                calib["k1"],
+                calib["k2"],
+                calib["k3"],
+                calib["k4"],
+                calib["k5"],
+                calib["k6"],
+                calib["p1"],
+                calib["p2"],
+                calib["s0"],
+                calib["s1"],
+                calib["s2"],
+                calib["s3"],
             ],
         )
     elif calib_pt == "radial":

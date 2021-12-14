@@ -7,9 +7,9 @@ from timeit import default_timer as timer
 from typing import Optional, List, Dict, Any, Tuple
 
 import numpy as np
-from opensfm import bow, features, io, log, pygeometry, upright
+from opensfm import bow, features, io, log, pygeometry, upright, masking
 from opensfm.context import parallel_map
-from opensfm.dataset import DataSetBase
+from opensfm.dataset_base import DataSetBase
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +75,7 @@ def average_image_size(data: DataSetBase) -> float:
     average_size_mb = 0
     for camera in data.load_camera_models().values():
         average_size_mb += camera.width * camera.height * 4 / 1024 / 1024
-    return average_size_mb / len(data.load_camera_models())
+    return average_size_mb / max(1, len(data.load_camera_models()))
 
 
 def write_report(data: DataSetBase, wall_time: float):
@@ -175,11 +175,23 @@ def run_detection(queue: queue.Queue):
 
 
 def bake_segmentation(
+    image: np.ndarray,
     points: np.ndarray,
     segmentation: Optional[np.ndarray],
     instances: Optional[np.ndarray],
     exif: Dict[str, Any],
 ):
+    exif_height, exif_width, exif_orientation = (
+        exif["height"],
+        exif["width"],
+        exif["orientation"],
+    )
+    height, width = image.shape[:2]
+    if exif_height != height or exif_width != width:
+        logger.error(
+            f"Image has inconsistent EXIF dimensions ({exif_width}, {exif_height}) and image dimensions ({width}, {height}). Orientation={exif_orientation}"
+        )
+
     panoptic_data = [None, None]
     for i, p_data in enumerate([segmentation, instances]):
         if p_data is None:
@@ -187,8 +199,8 @@ def bake_segmentation(
         new_height, new_width = p_data.shape
         ps = upright.opensfm_to_upright(
             points[:, :2],
-            exif["width"],
-            exif["height"],
+            width,
+            height,
             exif["orientation"],
             new_width=new_width,
             new_height=new_height,
@@ -241,7 +253,7 @@ def detect(
     if data.config["features_bake_segmentation"]:
         exif = data.load_exif(image)
         s_unsorted, i_unsorted = bake_segmentation(
-            p_unmasked, segmentation_array, instances_array, exif
+            image_array, p_unmasked, segmentation_array, instances_array, exif
         )
         p_unsorted = p_unmasked
         f_unsorted = f_unmasked
@@ -249,9 +261,7 @@ def detect(
     # Load segmentation, make a mask from it mask and apply it
     else:
         s_unsorted, i_unsorted = None, None
-        fmask = data.load_features_mask(image, p_unmasked)
-        if data.config["feature_type"] == "SIFT_GPU":
-            keypoints = keypoints[fmask]
+        fmask = masking.load_features_mask(data, image, p_unmasked)
         p_unsorted = p_unmasked[fmask]
         f_unsorted = f_unmasked[fmask]
         c_unsorted = c_unmasked[fmask]
@@ -264,9 +274,11 @@ def detect(
     p_sorted = p_unsorted[order, :]
     f_sorted = f_unsorted[order, :]
     c_sorted = c_unsorted[order, :]
-    if s_unsorted is not None and i_unsorted is not None:
+    if s_unsorted is not None:
         semantic_data = features.SemanticData(
-            s_unsorted[order], i_unsorted[order], data.segmentation_labels()
+            s_unsorted[order],
+            i_unsorted[order] if i_unsorted is not None else None,
+            data.segmentation_labels(),
         )
     else:
         semantic_data = None
