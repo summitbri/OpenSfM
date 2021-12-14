@@ -4,14 +4,15 @@ from typing import Optional
 from opensfm import dataset, undistort
 from opensfm.dataset import DataSet
 from typing import Callable
+import numpy as np
 
 def run_dataset(
     data: DataSet,
-    reconstruction: Optiona[str] = None,
+    reconstruction: Optional[str] = None,
     reconstruction_index: int = 0,
     tracks: Optional[str] = None,
     output: str = "undistorted",
-    imageFilter: Callable[[str, np.ndarray], np.ndarray],
+    imageFilter: Callable[[str, np.ndarray], np.ndarray] = None,
     skip_images: bool = False,
 ) -> None:
     """Export reconstruction to NVM_V3 format from VisualSfM

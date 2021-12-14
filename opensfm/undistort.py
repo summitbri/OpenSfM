@@ -84,7 +84,7 @@ def undistort_reconstruction_with_images(
     reconstruction: types.Reconstruction,
     data: DataSetBase,
     udata: UndistortedDataSet,
-    imageFilter: Callable[[str, np.ndarray], np.ndarray] = None
+    imageFilter: Callable[[str, np.ndarray], np.ndarray] = None,
     skip_images: bool = False,
 ) -> Dict[pymap.Shot, List[pymap.Shot]]:
     undistorted_shots = undistort_reconstruction(
