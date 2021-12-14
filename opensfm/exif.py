@@ -84,11 +84,10 @@ def camera_id(exif):
         exif["height"],
         exif["projection_type"],
         exif["focal_ratio"],
-        exif["band_name"],
     )
 
 
-def camera_id_(make, model, width, height, projection_type, focal, band_name):
+def camera_id_(make, model, width, height, projection_type, focal):
     if make != "unknown":
         # remove duplicate 'make' information in 'model'
         model = model.replace(make, "")
@@ -101,7 +100,6 @@ def camera_id_(make, model, width, height, projection_type, focal, band_name):
             str(int(height)),
             projection_type,
             str(float(focal))[:6],
-            band_name,
         ]
     ).lower()
 
@@ -468,23 +466,6 @@ class EXIF:
         )
         return 0.0
 
-    def extract_band_name(self):
-        band_name = "RGB"
-
-        for tags in self.xmp:
-            if 'Camera:BandName' in tags:
-                cbt = tags['Camera:BandName']
-                if isinstance(cbt, str):
-                    band_name = str(tags['Camera:BandName'])
-                    break
-                elif isinstance(cbt, dict):
-                    items = cbt.get('rdf:Seq', {}).get('rdf:li', {})
-                    if items:
-                        band_name = " ".join(items)
-                        break
-
-        return band_name.replace(" ", "")
-
     def extract_exif(self):
         width, height = self.extract_image_size()
         projection_type = self.extract_projection_type()
@@ -493,7 +474,6 @@ class EXIF:
         orientation = self.extract_orientation()
         geo = self.extract_geo()
         capture_time = self.extract_capture_time()
-        band_name = self.extract_band_name()
 
         d = {
             'make': make,
@@ -505,7 +485,6 @@ class EXIF:
             'orientation': orientation,
             'capture_time': capture_time,
             'gps': geo,
-            'band_name': band_name
         }
         d["camera"] = camera_id(d)
         return d
