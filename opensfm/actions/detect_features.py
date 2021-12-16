@@ -239,15 +239,9 @@ def detect(
 
     start = timer()
 
-    if data.config["feature_type"] == "SIFT_GPU":
-        unmasked, keypoints = features.extract_features(
-            image_array, data.config, is_high_res_panorama(data, image, image_array)
-        )
-        p_unmasked, f_unmasked, c_unmasked = unmasked
-    else:
-        p_unmasked, f_unmasked, c_unmasked = features.extract_features(
-            image_array, data.config, is_high_res_panorama(data, image, image_array)
-        )
+    p_unmasked, f_unmasked, c_unmasked = features.extract_features(
+        image_array, data.config, is_high_res_panorama(data, image, image_array)
+    )
     
     # Load segmentation and bake it in the data
     if data.config["features_bake_segmentation"]:
@@ -283,9 +277,6 @@ def detect(
     else:
         semantic_data = None
     features_data = features.FeaturesData(p_sorted, f_sorted, c_sorted, semantic_data)
-    if data.config["feature_type"] == "SIFT_GPU":
-        keypoints_sorted = keypoints[order]
-        data.save_gpu_features(image, keypoints_sorted)
     data.save_features(image, features_data)
 
     if need_words:

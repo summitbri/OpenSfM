@@ -316,26 +316,8 @@ class DataSet(DataSetBase):
     def save_features(self, image: str, features_data: features.FeaturesData) -> None:
         self._save_features(self._feature_file(image), features_data)
 
-    def save_gpu_features(self, image, keypoints):
-        io.mkdir_p(self._feature_path())
-        path = os.path.join(self._feature_path(), self._gpu_feature_file(image))
-        # Store data (serialize)
-        with open(path, 'wb+') as handle:
-            pickle.dump(keypoints, handle, protocol=pickle.HIGHEST_PROTOCOL)
-
-    def load_gpu_features(self, image):
-        path = self._gpu_feature_file(image)
-        if os.path.isfile(path):
-            with open(path, 'rb') as handle:
-                keypoints = pickle.load(handle)
-                return keypoints
-        return None
-
     def _words_file(self, image):
         return os.path.join(self._feature_path(), image + ".words.npz")
-
-    def _gpu_feature_file(self, image):
-        return os.path.join(self._feature_path(), image.rsplit(".")[0] + '_gpu.pkl')
 
     def words_exist(self, image):
         return self.io_handler.isfile(self._words_file(image))

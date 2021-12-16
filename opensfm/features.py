@@ -7,7 +7,6 @@ from typing import Tuple, Dict, Any, List, Optional
 import cv2
 import numpy as np
 from opensfm import context, pyfeatures
-from opensfm.sift_gpu import get_sift_gpu
 
 logger = logging.getLogger(__name__)
 
@@ -235,19 +234,6 @@ def root_feature(desc: np.ndarray, l2_normalization: bool = False) -> np.ndarray
     return desc
 
 
-def root_feature_sift_gpu(desc, l2_normalization=False):
-    if l2_normalization:
-        s2 = np.linalg.norm(desc, axis=1)
-        idx = np.where(s2 == 0)
-        s2[idx] = 1
-        desc = (desc.T / s2).T
-    s = np.max(desc, 1)
-    idx = np.where(s == 0)
-    s[idx] = 1
-    desc = np.sqrt(desc.T / s).T
-    return desc
-
-
 def root_feature_surf(
     desc: np.ndarray, l2_normalization: bool = False, partial: bool = False
 ) -> np.ndarray:
@@ -365,34 +351,20 @@ def extract_features_sift(
     points = np.array([(i.pt[0], i.pt[1], i.size, i.angle) for i in points])
     return points, desc
 
-def extract_features_sift_gpu(image, config, features_count):
-    # sift_peak_threshold = float(config["sift_peak_threshold"])
-    # sift_edge_threshold = config["sift_edge_threshold"]
+def extract_features_popsift(
+    image: np.ndarray, config: Dict[str, Any], features_count: int
+) -> Tuple[np.ndarray, np.ndarray]:
+    from opensfm import pypopsift
 
-    # while True:
-    #     logger.debug("Computing gpu sift with threshold {0}".format(sift_peak_threshold))
-    #     t = time.time()
-    keypoints = get_sift_gpu().detect_image(image)
-    # if len(keypoints) < features_count and sift_peak_threshold > 0.0001:
-    #     logger.debug("Found {0} points in {1}s".format(len(keypoints), time.time() - t))
-    #     sift_peak_threshold = (sift_peak_threshold * 2) / 3
-    #     logger.debug("reducing threshold")
-    # else:
-    #     logger.debug("done")
-    #     break
-    logger.debug("Found {} keypoints".format(len(keypoints)))
-        
-    idx = np.where(np.sum(keypoints.desc, 1) != 0)
-    keypoints = keypoints[idx]
+    sift_edge_threshold = float(config["sift_edge_threshold"])
+    sift_peak_threshold = float(config["sift_peak_threshold"])
 
-    points = np.concatenate([np.expand_dims(keypoints[:].x, axis=1),
-                             np.expand_dims(keypoints[:].y, axis=1),
-                             np.expand_dims(keypoints[:].scale, axis=1),
-                             np.expand_dims(keypoints[:].angle, axis=1)], axis=1)
-    desc = np.array(keypoints[:].desc, dtype=np.float32)
-    if config['feature_root']:
-        desc = root_feature_sift_gpu(desc)
-    return points, desc, keypoints
+    points, desc = pypopsift.popsift(image, peak_threshold=sift_peak_threshold,
+                                edge_threshold=sift_edge_threshold,
+                                target_num_features=features_count,
+                                use_root=bool(config["feature_root"]))
+
+    return points, desc
 
 def extract_features_surf(
     image: np.ndarray, config: Dict[str, Any], features_count: int
@@ -587,7 +559,7 @@ def extract_features(
     elif feature_type == "ORB":
         points, desc = extract_features_orb(image_gray, config, features_count)
     elif feature_type == 'SIFT_GPU':
-        points, desc, keypoints = extract_features_sift_gpu(image, config, features_count)
+        points, desc = extract_features_popsift(image_gray, config, features_count)
     else:
         raise ValueError(
             "Unknown feature type " "(must be SURF, SIFT, AKAZE, HAHOG, SIFT_GPU or ORB)"
