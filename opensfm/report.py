@@ -356,25 +356,25 @@ class Report:
                 self._make_table(["", "Absolute", "Relative"], rows, True)
                 self.pdf.set_xy(self.margin, self.pdf.get_y() + self.margin / 2)
 
-        rows = []
-        columns_names = [
-            "GPS Bias",
-            "Scale",
-            "Translation",
-            "Rotation",
-        ]
-        for camera, params in self.stats["camera_errors"].items():
-            bias = params["bias"]
-            s, t, R = bias["scale"], bias["translation"], bias["rotation"]
-            rows.append(
-                [
-                    camera,
-                    f"{s:.2f}",
-                    f"{t[0]:.2f}      {t[1]:.2f}      {t[2]:.2f}",
-                    f"{R[0]:.2f}      {R[1]:.2f}      {R[2]:.2f}",
-                ]
-            )
-        self._make_table(columns_names, rows)
+        # rows = []
+        # columns_names = [
+        #     "GPS Bias",
+        #     "Scale",
+        #     "Translation",
+        #     "Rotation",
+        # ]
+        # for camera, params in self.stats["camera_errors"].items():
+        #     bias = params["bias"]
+        #     s, t, R = bias["scale"], bias["translation"], bias["rotation"]
+        #     rows.append(
+        #         [
+        #             camera,
+        #             f"{s:.2f}",
+        #             f"{t[0]:.2f}      {t[1]:.2f}      {t[2]:.2f}",
+        #             f"{R[0]:.2f}      {R[1]:.2f}      {R[2]:.2f}",
+        #         ]
+        #     )
+        # self._make_table(columns_names, rows)
 
         self.pdf.set_xy(self.margin, self.pdf.get_y() + self.margin / 2)
 
