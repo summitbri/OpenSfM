@@ -1,7 +1,5 @@
 #pragma once
 
-#include <foundation/types.h>
-
 #include <Eigen/LU>
 #include <Eigen/QR>
 #include <Eigen/SVD>
@@ -99,8 +97,5 @@ EpipolarAngleTwoBearingsMany(
     const Eigen::Matrix<float, Eigen::Dynamic, 3> &bearings1,
     const Eigen::Matrix<float, Eigen::Dynamic, 3> &bearings2,
     const Eigen::Matrix3f &rotation, const Eigen::Vector3f &translation);
-
-Vec3d PointRefinement(const MatX3d &centers, const MatX3d &bearings,
-                      const Vec3d &point, int iterations);
 
 }  // namespace geometry
