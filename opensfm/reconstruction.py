@@ -1741,7 +1741,7 @@ def _compute_planar_homography(args):
     H, plane_inliers = find_planar_homography(common_tracks, homogeneous_common_tracks, pair, graph, error_threshold, ransac_error_threshold)
     if H is None:
         logger.warning("Could not compute homography for %s" % str(pair))
-        return (None, None, None)
+        return (pair, None, None)
 
     num_outliers = len(common_tracks[pair][0]) - len(plane_inliers)
     logger.info("%s <=> %s inliers: %s outliers: %s" % (pair[0], pair[1], len(plane_inliers), num_outliers))
@@ -1751,7 +1751,7 @@ def _compute_planar_homography(args):
 def planar_reconstruction(
     data: DataSetBase, tracks_manager: pymap.TracksManager
 ) -> Tuple[Dict[str, Any], List[types.Reconstruction]]:
-    """Run the entire incremental reconstruction pipeline."""
+    """Run the entire planar reconstruction pipeline."""
 
     logger.info("Starting planar reconstruction")
     report = {}
@@ -1889,10 +1889,12 @@ def planar_reconstruction(
     if multithread:
         processes = data.config["processes"]
         for pair, H, H1 in parallel_map(_compute_planar_homography, parallel_args, processes, backend="multiprocessing"):
-            if pair is not None:
+            if H is not None:
                 graph[pair[0]][pair[1]]['H'] = H
                 graph[pair[1]][pair[0]]['H'] = H1
-
+            else:
+                del graph[pair[0]][pair[1]]['H']
+                del graph[pair[1]][pair[0]]['H']
     # Remove edges that have no homographies
     edges = list(nx.edges(graph))
     for u,v in edges:
