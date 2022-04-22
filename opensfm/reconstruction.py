@@ -1643,7 +1643,11 @@ def find_planar_homography(common_tracks, homogeneous_common_tracks, pair, graph
         for n in graph[p]:
             for ap in ((n,p), (p,n)):
                 if ap in common_tracks and ap != pair:
-                    adjacent_pairs.append(ap)
+                    adjacent_pairs.append((ap, len(common_tracks[ap][0])))
+    
+    adjacent_pairs = sorted(adjacent_pairs, key=lambda e: e[1], reverse=True)
+    adjacent_pairs = adjacent_pairs[:2]
+
     i = 0
     while len(trials) < num_trials and i < max_iters:
         i += 1
@@ -1675,7 +1679,7 @@ def find_planar_homography(common_tracks, homogeneous_common_tracks, pair, graph
         
         r['inliers'] = set(r['pair_inliers'])
 
-        for adj_pair in adjacent_pairs:
+        for adj_pair, _ in adjacent_pairs:
             adj_pair_tracks, new_p1, new_p2 = common_tracks[adj_pair]
             new_hp1, new_hp2 = homogeneous_common_tracks[adj_pair]
 
