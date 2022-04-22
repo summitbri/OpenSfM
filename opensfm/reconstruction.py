@@ -1786,7 +1786,7 @@ def planar_reconstruction(
         _, p1, p2 = common_tracks[pair]
         homogeneous_common_tracks[pair] = (
             np.hstack((p1, np.ones(len(p1)).reshape(len(p1), 1))),
-            np.hstack((p2, np.ones(len(p2)).reshape(len(p1), 1)))
+            np.hstack((p2, np.ones(len(p2)).reshape(len(p2), 1)))
         )
     
     camera_priors = data.load_camera_models()
