@@ -4,10 +4,13 @@ import datetime
 import enum
 import logging
 import math
+import random
 from collections import defaultdict
 from itertools import combinations
 from timeit import default_timer as timer
 from typing import Dict, Any, List, Tuple, Set, Optional
+import networkx as nx 
+from collections import deque
 
 import cv2
 import numpy as np
@@ -989,6 +992,56 @@ class TrackTriangulator:
                 for shot_id in ids:
                     self._add_track_to_reconstruction(track, shot_id)
 
+    def triangulate_planar(
+        self, track: str, threshold: float
+    ) -> None:
+        """Triangulate track using a main plane and add point to reconstruction."""
+        os, bs, ids = [], [], []
+
+        plane_center = np.array([0, 0, 1])
+        plane_normal = np.array([0, 0, 1])
+
+        for shot_id, obs in self.tracks_manager.get_track_observations(track).items():
+            if shot_id in self.reconstruction.shots:
+                shot = self.reconstruction.shots[shot_id]
+                os.append(self._shot_origin(shot))
+                b = shot.camera.pixel_bearing(np.array(obs.point))
+                r = self._shot_rotation_inverse(shot)
+                bs.append(r.dot(b))
+                ids.append(shot_id)
+
+        if len(os) >= 2:
+            Xs = []
+
+            for i in range(len(os)):
+                o = os[i]
+                b = bs[i]
+                X = np.zeros(3)
+
+                # https://math.stackexchange.com/questions/100439/determine-where-a-vector-will-intersect-a-plane
+                # [t == (a1*n1 + a2*n2 + a3*n3 - n1*o1 - n2*o2 - n3*o3)/(d1*n1 + d2*n2 + d3*n3)
+                d = b.dot(plane_normal)
+                if d == 0:
+                    continue
+
+                t = (plane_center.dot(plane_normal) - plane_normal.dot(o)) / d
+                
+                X[0] = o[0] + b[0] * t
+                X[1] = o[1] + b[1] * t
+                X[2] = o[2] + b[2] * t
+                Xs.append(X)
+            
+            if len(Xs) < 2:
+                return
+
+            avgX = np.average(Xs, axis=0)
+            maxDist = np.max([np.linalg.norm(avgX - X) for X in Xs])
+            if maxDist < threshold:
+                self.reconstruction.create_point(track, avgX)
+                for shot_id in ids:
+                    self._add_track_to_reconstruction(track, shot_id)
+
+
     def _add_track_to_reconstruction(self, track_id: str, shot_id: str) -> None:
         observation = self.tracks_manager.get_observation(shot_id, track_id)
         self.reconstruction.add_observation(shot_id, track_id, observation)
@@ -1075,6 +1128,32 @@ def retriangulate(
     report["wall_time"] = chrono.total_time()
     return report
 
+def retriangulate_planar(
+    tracks_manager: pymap.TracksManager,
+    reconstruction: types.Reconstruction,
+    threshold: float = 0.02,
+) -> Dict[str, Any]:
+    """Retrianguate all points"""
+    chrono = Chronometer()
+    report = {}
+    report["num_points_before"] = len(reconstruction.points)
+
+    reconstruction.points = {}
+
+    all_shots_ids = set(tracks_manager.get_shot_ids())
+
+    triangulator = TrackTriangulator(tracks_manager, reconstruction)
+    tracks = set()
+    for image in reconstruction.shots.keys():
+        if image in all_shots_ids:
+            tracks.update(tracks_manager.get_shot_observations(image).keys())
+    for track in tracks:
+        triangulator.triangulate_planar(track, threshold)
+
+    report["num_points_after"] = len(reconstruction.points)
+    chrono.lap("retriangulate")
+    report["wall_time"] = chrono.total_time()
+    return report
 
 def get_error_distribution(points: Dict[str, pymap.Landmark]) -> Tuple[float, float]:
     all_errors = []
@@ -1549,6 +1628,345 @@ def incremental_reconstruction(
     report["not_reconstructed_images"] = list(remaining_images)
     return report, reconstructions
 
+
+def find_planar_homography(common_tracks, homogeneous_common_tracks, pair, graph, error_threshold, ransac_error_threshold):
+    # Based on TRASAC: https://people.eecs.berkeley.edu/~yima/psfile/Planar-CVPR12.pdf
+
+    num_trials = 15
+    max_iters = 1000
+    trials = []
+    pair_tracks, p1, p2 = common_tracks[pair]
+    hp1, hp2 = homogeneous_common_tracks[pair]
+    
+    adjacent_pairs = []
+    for p in pair:
+        for n in graph[p]:
+            for ap in ((n,p), (p,n)):
+                if ap in common_tracks and ap != pair:
+                    adjacent_pairs.append(ap)
+    i = 0
+    while len(trials) < num_trials and i < max_iters:
+        i += 1
+
+        r = {
+            'H': None,
+            'inliers': set(),
+            'pair_inliers': set(),
+        }
+        
+        # Sample 4
+        sample_ids = random.sample(range(0, len(pair_tracks)), 4)
+
+        # Compute homography
+        track_points1 = np.array([p1[i] for i in sample_ids])
+        track_points2 = np.array([p2[i] for i in sample_ids])
+        
+        r['H'], _ = cv2.estimateAffinePartial2D(track_points1, track_points2)
+        r['H'] = np.vstack([r['H'], [0,0,1]])
+
+        # Classify each track
+        for j in range(len(pair_tracks)):
+            err = np.linalg.norm(hp2[j] - r['H'].dot(hp1[j]))
+            if err < error_threshold:
+                r['pair_inliers'].add(pair_tracks[j])
+
+        if len(r['pair_inliers']) <= 4:
+            continue
+        
+        r['inliers'] = set(r['pair_inliers'])
+
+        for adj_pair in adjacent_pairs:
+            adj_pair_tracks, new_p1, new_p2 = common_tracks[adj_pair]
+            new_hp1, new_hp2 = homogeneous_common_tracks[adj_pair]
+
+            inliers_common_tracks = set(adj_pair_tracks).intersection(r['pair_inliers'])
+            if len(inliers_common_tracks) <= 4:
+                continue
+
+            ict_indices = [adj_pair_tracks.index(i) for i in inliers_common_tracks]
+            inliers_p1 = np.array([new_p1[i] for i in ict_indices])
+            inliers_p2 = np.array([new_p2[i] for i in ict_indices])
+
+            H, _ = cv2.estimateAffinePartial2D(track_points1, track_points2)
+
+            if H is None:
+                continue
+            
+            H = np.vstack([H, [0,0,1]])
+            
+            for j in range(len(adj_pair_tracks)):
+                err = np.linalg.norm(new_hp2[j] - H.dot(new_hp1[j]))
+                if err < error_threshold:
+                    r['inliers'].add(adj_pair_tracks[j])
+
+        trials.append(r)
+    
+    max_inliers = -1
+    best_t = None
+    for trial in trials:
+        num_inliers = len(trial['inliers'])
+        if num_inliers > max_inliers:
+            best_t = trial
+            max_inliers = num_inliers
+
+    if best_t is None:
+        return None, None
+
+    return best_t['H'], best_t['pair_inliers']
+
+def Rt_from_H(H, K, K1):
+    H = H.copy()
+
+    _, s, _ = np.linalg.svd(K1.dot(H).dot(K))
+    H /= s[1]
+
+    R = H.copy()
+    R[0][2] = R[1][2] = 0
+    R[2][2] = 1.0
+
+    t = H[:,2]
+    t[0] /= K[0][0]
+    t[1] /= K[1][1]
+    t[2] = 0
+
+    return R, t
+
+
+def _compute_planar_homography(args):
+    error_threshold = 0.002
+    ransac_error_threshold = 0.004
+
+    pair, common_tracks, homogeneous_common_tracks, graph, = args
+    pair_tracks, p1, p2 = common_tracks[pair]
+    H, plane_inliers = find_planar_homography(common_tracks, homogeneous_common_tracks, pair, graph, error_threshold, ransac_error_threshold)
+    if H is None:
+        logger.warning("Could not compute homography for %s" % str(pair))
+        return (None, None, None)
+
+    num_outliers = len(common_tracks[pair][0]) - len(plane_inliers)
+    logger.info("%s <=> %s inliers: %s outliers: %s" % (pair[0], pair[1], len(plane_inliers), num_outliers))
+    
+    return (pair, H, np.linalg.inv(H))
+
+def planar_reconstruction(
+    data: DataSetBase, tracks_manager: pymap.TracksManager
+) -> Tuple[Dict[str, Any], List[types.Reconstruction]]:
+    """Run the entire incremental reconstruction pipeline."""
+
+    logger.info("Starting planar reconstruction")
+    report = {}
+    chrono = Chronometer()
+    images = tracks_manager.get_shot_ids()
+    if len(images) == 0:
+        logger.warning("No images")
+        exit(1)
+
+    min_inliers = data.config["five_point_algo_min_inliers"]
+
+    data.init_reference(images)
+    bundle_gcp = data.config["bundle_use_gcp"]
+    if data.config["align_method"] == "auto":
+        logger.info("Switching align_method to orientation_prior")
+        data.config["align_method"] = "orientation_prior"
+        #data.config["bundle_max_iterations"] = 10
+    if bundle_gcp:
+        data.config["bundle_use_gcp"] = False
+    processes = data.config["processes"]
+    multithread = processes > 1
+
+    gcp = data.load_ground_control_points()
+    rig_assignments = rig.rig_assignments_per_image(data.load_rig_assignments())
+    common_tracks = tracking.all_common_tracks_with_features(tracks_manager, min_common=min_inliers)
+    homogeneous_common_tracks = {}
+    for pair in common_tracks:
+        _, p1, p2 = common_tracks[pair]
+        homogeneous_common_tracks[pair] = (
+            np.hstack((p1, np.ones(len(p1)).reshape(len(p1), 1))),
+            np.hstack((p2, np.ones(len(p2)).reshape(len(p1), 1)))
+        )
+    
+    camera_priors = data.load_camera_models()
+    rig_camera_priors = data.load_rig_cameras()
+    
+    camera_id = data.load_exif(images[0])["camera"]
+    camera = camera_priors[camera_id]
+
+    K = camera.get_K()
+    K1 = np.linalg.inv(K)
+    
+    graph = nx.DiGraph()
+
+    for pair in common_tracks:
+        graph.add_node(pair[0])
+        graph.add_node(pair[1])
+        # num_features = len(common_tracks[pair][0])
+        # graph.add_edge(*pair, weight=1.0/num_features)
+        # graph.add_edge(*(tuple(reversed(pair))), weight=1.0/num_features)
+        num_features = len(common_tracks[pair][0])
+        graph.add_edge(*pair, weight=num_features)
+        graph.add_edge(*(tuple(reversed(pair))), weight=num_features)
+
+    # Find initial image by looking at the most centralized nodes
+    centrality = sorted(nx.degree_centrality(graph).items(), key=lambda c: (c[1], c[0]), reverse=True)
+
+    # Compute homography graph
+    central_image = centrality[0][0]
+    
+    # for n in nx.nodes(graph):
+    #     if n == central_image:
+    #         continue
+
+    #     try:
+    #         sp = nx.dijkstra_path(graph, central_image, n, weight='weight')
+    #         for n1,n2 in zip(sp, sp[1:]):
+    #             if 'H' in graph[n1][n2] or 'H' in graph[n2][n1]:
+    #                 continue
+
+    #             # Compute H
+    #             pair = (n1, n2)
+    #             if not pair in common_tracks:
+    #                 pair = tuple(reversed(pair))
+                
+    #             if not pair in common_tracks:
+    #                 # Should never happen?
+    #                 logger.warning("%s not in common tracks" % str(pair))
+    #                 continue
+            
+    #             pair_tracks, p1, p2 = common_tracks[pair]
+    #             H, plane_inliers, plane_outliers = find_planar_homography(common_tracks, pair, graph, error_threshold, ransac_error_threshold, outliers)
+    #             graph[pair[0]][pair[1]]['H'] = H
+    #             graph[pair[1]][pair[0]]['H'] = np.linalg.inv(H)
+
+    #             logger.info("%s inliers: %s outliers %s" % (str(pair), len(plane_inliers), len(plane_outliers)))
+    #             inliers |= plane_inliers
+    #             outliers |= plane_outliers
+    #     except nx.NetworkXNoPath:
+    #         pass
+
+    nodes = deque([central_image])
+    parallel_args = []
+
+    while len(nodes) > 0:
+        node = nodes.popleft()
+        edges = sorted(graph[node].items(), key=lambda e: (e[1]['weight'], e[0]), reverse=True)
+
+        for n, attrs in edges:
+            # Has this node's homography been computed ?
+            # (is there an edge with an homography connected to this node?)
+            connected = False
+            for e in graph[n]:
+                if 'H' in graph[n][e]:
+                    connected = True
+                    break
+            
+            if connected:
+                continue
+
+            # Compute H
+            pair = (node, n)
+            if not pair in common_tracks:
+                pair = tuple(reversed(pair))
+            
+            if not pair in common_tracks:
+                # Should never happen?
+                logger.warning("%s not in common tracks" % str(pair))
+                continue
+            
+            # Mark edges with candidate pairs to be computed
+            # in parallel
+            if multithread:
+                graph[pair[0]][pair[1]]['H'] = True
+                graph[pair[1]][pair[0]]['H'] = True
+                parallel_args.append((pair, common_tracks, homogeneous_common_tracks, graph))
+            else:
+                _, H, H1 = _compute_planar_homography((pair, common_tracks, homogeneous_common_tracks, graph))
+                if H is not None:
+                    graph[pair[0]][pair[1]]['H'] = H
+                    graph[pair[1]][pair[0]]['H'] = H1
+
+            nodes.append(n)
+    
+    if multithread:
+        processes = data.config["processes"]
+        for pair, H, H1 in parallel_map(_compute_planar_homography, parallel_args, processes, backend="multiprocessing"):
+            if pair is not None:
+                graph[pair[0]][pair[1]]['H'] = H
+                graph[pair[1]][pair[0]]['H'] = H1
+
+    # Remove edges that have no homographies
+    edges = list(nx.edges(graph))
+    for u,v in edges:
+        if 'H' not in graph[u][v]:
+            graph.remove_edge(u, v)
+
+    # Remove isolated nodes
+    nodes = list(nx.nodes(graph))
+    for n in nodes:
+        if len(graph[n]) == 0:
+            graph.remove_node(n)
+            logger.info("Image %s could not be added (not enough overlap with other images)" % n)
+
+    #nx.write_gpickle(graph, "/datasets/brighton2/graph.gpickle")
+    # graph = nx.read_gpickle("/datasets/brighton2/graph.gpickle")
+    # print("loaded existing graph")
+    # centrality = sorted(nx.degree_centrality(graph).items(), key=lambda c: (c[1], c[0]), reverse=True)
+    # central_image = centrality[0][0]
+
+    rec = types.Reconstruction()
+    rec.reference = data.load_reference()
+    rec.cameras = camera_priors
+    rec.rig_cameras = rig_camera_priors
+
+    # Compute homography chain for each node in the graph
+    # starting from the center image and add them to the reconstruction
+    logger.info("Creating reconstruction poses from homography graph")
+    for im, graph_path in nx.single_source_shortest_path(graph, central_image).items():
+        H = np.identity(3)
+        for n1,n2 in zip(graph_path, graph_path[1:]):
+            H = graph[n1][n2]['H'].dot(H)
+
+        R, t = Rt_from_H(H, K, K1)
+
+        shot = rec.create_shot(
+            im,
+            camera_id,
+            pygeometry.Pose(R, t)
+        )
+
+        shot.metadata = helpers.get_image_metadata(data, im)
+        shot.scale = 1.0
+
+    #Triangulate and bundle
+    retriangulate_planar(tracks_manager, rec, 0.01)
+    logger.info("Triangulated %s points on plane" % len(rec.points))
+    logger.info("Bundle shot poses")
+    bundle_shot_poses(rec, set(rec.shots.keys()), camera_priors, rig_camera_priors, data.config)
+    
+    retriangulate(tracks_manager, rec, data.config)
+    logger.info("Reconstructed %s points" % len(rec.points))
+
+    logger.info("Bundle adjustment")
+    
+    align_reconstruction(rec, gcp, data.config)
+    bundle(rec, camera_priors, rig_camera_priors, gcp, data.config)
+    remove_outliers(rec, data.config)
+    retriangulate(tracks_manager, rec, data.config)
+    logger.info("Reconstructed %s points" % len(rec.points))
+
+    if bundle_gcp:
+        data.config["bundle_use_gcp"] = True
+
+    align_reconstruction(rec, gcp, data.config)
+    bundle(rec, camera_priors, rig_camera_priors, gcp, data.config)
+    remove_outliers(rec, data.config)
+
+    align_reconstruction(rec, gcp, data.config)
+    paint_reconstruction(data, tracks_manager, rec)
+
+    report["decision"] = "Success"
+    report["memory_usage"] = current_memory_usage()
+
+    return report, [rec]
 
 def reconstruct_from_prior(
     data: DataSetBase,

@@ -610,7 +610,7 @@ def reconstruction_to_json(reconstruction: types.Reconstruction) -> Dict[str, An
             obj["pano_shots"] = {}
             for shot in reconstruction.pano_shots.values():
                 obj["pano_shots"][shot.id] = shot_to_json(shot)
-
+    
     # Extract reference topocentric frame
     if reconstruction.reference:
         ref = reconstruction.reference
