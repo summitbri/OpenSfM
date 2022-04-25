@@ -1629,21 +1629,25 @@ def incremental_reconstruction(
     return report, reconstructions
 
 
-def find_planar_homography(common_tracks, homogeneous_common_tracks, pair, graph, error_threshold, ransac_error_threshold):
+def find_planar_homography(common_tracks_index, common_tracks_data, pair, graph, error_threshold, ransac_error_threshold):
     # Based on TRASAC: https://people.eecs.berkeley.edu/~yima/psfile/Planar-CVPR12.pdf
-
+    log.setup()
     num_trials = 15
     max_iters = 1000
     trials = []
-    pair_tracks, p1, p2 = common_tracks[pair]
-    hp1, hp2 = homogeneous_common_tracks[pair]
+    # pair_tracks, p1, p2 = common_tracks[pair]
+    # hp1, hp2 = homogeneous_common_tracks[pair]
+
+    num_tracks, rec_start, rec_end = common_tracks_index[pair]
+    ct_frame = common_tracks_data[rec_start:rec_end].reshape((num_tracks, 8))
+    pair_tracks, p1, p2, hp1, hp2 = ct_frame[:,:1].T[0], ct_frame[:,1:3], ct_frame[:,4:6], ct_frame[:,1:4], ct_frame[:,4:7]
     
     adjacent_pairs = []
     for p in pair:
         for n in graph[p]:
             for ap in ((n,p), (p,n)):
-                if ap in common_tracks and ap != pair:
-                    adjacent_pairs.append((ap, len(common_tracks[ap][0])))
+                if ap in common_tracks_index and ap != pair:
+                    adjacent_pairs.append((ap, common_tracks_index[ap][0]))
     
     adjacent_pairs = sorted(adjacent_pairs, key=lambda e: e[1], reverse=True)
     adjacent_pairs = adjacent_pairs[:2]
@@ -1659,17 +1663,17 @@ def find_planar_homography(common_tracks, homogeneous_common_tracks, pair, graph
         }
         
         # Sample 4
-        sample_ids = random.sample(range(0, len(pair_tracks)), 4)
+        sample_ids = random.sample(range(0, num_tracks), 4)
 
         # Compute homography
-        track_points1 = np.array([p1[i] for i in sample_ids])
-        track_points2 = np.array([p2[i] for i in sample_ids])
+        track_points1 = p1.take(sample_ids, axis=0)
+        track_points2 = p2.take(sample_ids, axis=0)
         
         r['H'], _ = cv2.estimateAffinePartial2D(track_points1, track_points2)
         r['H'] = np.vstack([r['H'], [0,0,1]])
 
         # Classify each track
-        for j in range(len(pair_tracks)):
+        for j in range(num_tracks):
             err = np.linalg.norm(hp2[j] - r['H'].dot(hp1[j]))
             if err < error_threshold:
                 r['pair_inliers'].add(pair_tracks[j])
@@ -1680,25 +1684,36 @@ def find_planar_homography(common_tracks, homogeneous_common_tracks, pair, graph
         r['inliers'] = set(r['pair_inliers'])
 
         for adj_pair, _ in adjacent_pairs:
-            adj_pair_tracks, new_p1, new_p2 = common_tracks[adj_pair]
-            new_hp1, new_hp2 = homogeneous_common_tracks[adj_pair]
+            # adj_pair_tracks, new_p1, new_p2 = common_tracks[adj_pair]
+            # new_hp1, new_hp2 = homogeneous_common_tracks[adj_pair]
+            adj_num_tracks, adj_rec_start, adj_rec_end = common_tracks_index[adj_pair]
+            adj_ct_frame = common_tracks_data[adj_rec_start:adj_rec_end].reshape((adj_num_tracks, 8))
+            adj_pair_tracks, new_p1, new_p2, new_hp1, new_hp2 = adj_ct_frame[:,:1].T[0], adj_ct_frame[:,1:3], adj_ct_frame[:,4:6], adj_ct_frame[:,1:4], adj_ct_frame[:,4:7]
 
             inliers_common_tracks = set(adj_pair_tracks).intersection(r['pair_inliers'])
             if len(inliers_common_tracks) <= 4:
                 continue
+            
+            # ict_indices = [adj_pair_tracks.index(i) for i in inliers_common_tracks]
+            # inliers_p1 = new_p1.take(ict_indices, axis=0)
+            # inliers_p2 = new_p2.take(ict_indices, axis=0)
+            inliers_p1 = []
+            inliers_p2 = []
+            for x in range(len(adj_pair_tracks)):
+                if adj_pair_tracks[x] in inliers_common_tracks:
+                    inliers_p1.append(new_p1[x])
+                    inliers_p2.append(new_p2[x])
+            inliers_p1 = np.reshape(inliers_p1, newshape=(len(inliers_p1), 2))
+            inliers_p2 = np.reshape(inliers_p2, newshape=(len(inliers_p2), 2))
 
-            ict_indices = [adj_pair_tracks.index(i) for i in inliers_common_tracks]
-            inliers_p1 = np.array([new_p1[i] for i in ict_indices])
-            inliers_p2 = np.array([new_p2[i] for i in ict_indices])
-
-            H, _ = cv2.estimateAffinePartial2D(track_points1, track_points2)
+            H, _ = cv2.estimateAffinePartial2D(inliers_p1, inliers_p2)
 
             if H is None:
                 continue
             
             H = np.vstack([H, [0,0,1]])
             
-            for j in range(len(adj_pair_tracks)):
+            for j in range(adj_num_tracks):
                 err = np.linalg.norm(new_hp2[j] - H.dot(new_hp1[j]))
                 if err < error_threshold:
                     r['inliers'].add(adj_pair_tracks[j])
@@ -1740,14 +1755,15 @@ def _compute_planar_homography(args):
     error_threshold = 0.002
     ransac_error_threshold = 0.004
 
-    pair, common_tracks, homogeneous_common_tracks, graph, = args
-    pair_tracks, p1, p2 = common_tracks[pair]
-    H, plane_inliers = find_planar_homography(common_tracks, homogeneous_common_tracks, pair, graph, error_threshold, ransac_error_threshold)
+    pair, common_tracks_index, common_tracks_data, graph, = args
+    num_tracks, _, _ = common_tracks_index[pair]
+
+    H, plane_inliers = find_planar_homography(common_tracks_index, common_tracks_data, pair, graph, error_threshold, ransac_error_threshold)
     if H is None:
         logger.warning("Could not compute homography for %s" % str(pair))
         return (pair, None, None)
 
-    num_outliers = len(common_tracks[pair][0]) - len(plane_inliers)
+    num_outliers = num_tracks - len(plane_inliers)
     logger.info("%s <=> %s inliers: %s outliers: %s" % (pair[0], pair[1], len(plane_inliers), num_outliers))
     
     return (pair, H, np.linalg.inv(H))
@@ -1780,15 +1796,8 @@ def planar_reconstruction(
 
     gcp = data.load_ground_control_points()
     rig_assignments = rig.rig_assignments_per_image(data.load_rig_assignments())
-    common_tracks = tracking.all_common_tracks_with_features(tracks_manager, min_common=min_inliers)
-    homogeneous_common_tracks = {}
-    for pair in common_tracks:
-        _, p1, p2 = common_tracks[pair]
-        homogeneous_common_tracks[pair] = (
-            np.hstack((p1, np.ones(len(p1)).reshape(len(p1), 1))),
-            np.hstack((p2, np.ones(len(p2)).reshape(len(p2), 1)))
-        )
-    
+    common_tracks_data, common_tracks_index = tracking.np_all_common_tracks_with_features(tracks_manager, min_common=min_inliers)
+
     camera_priors = data.load_camera_models()
     rig_camera_priors = data.load_rig_cameras()
     
@@ -1800,15 +1809,12 @@ def planar_reconstruction(
     
     graph = nx.DiGraph()
 
-    for pair in common_tracks:
+    for pair in common_tracks_index:
         graph.add_node(pair[0])
         graph.add_node(pair[1])
-        # num_features = len(common_tracks[pair][0])
-        # graph.add_edge(*pair, weight=1.0/num_features)
-        # graph.add_edge(*(tuple(reversed(pair))), weight=1.0/num_features)
-        num_features = len(common_tracks[pair][0])
-        graph.add_edge(*pair, weight=num_features)
-        graph.add_edge(*(tuple(reversed(pair))), weight=num_features)
+        num_tracks, _, _ = common_tracks_index[pair]
+        graph.add_edge(*pair, weight=num_tracks)
+        graph.add_edge(*(tuple(reversed(pair))), weight=num_tracks)
 
     # Find initial image by looking at the most centralized nodes
     centrality = sorted(nx.degree_centrality(graph).items(), key=lambda c: (c[1], c[0]), reverse=True)
@@ -1816,37 +1822,6 @@ def planar_reconstruction(
     # Compute homography graph
     central_image = centrality[0][0]
     
-    # for n in nx.nodes(graph):
-    #     if n == central_image:
-    #         continue
-
-    #     try:
-    #         sp = nx.dijkstra_path(graph, central_image, n, weight='weight')
-    #         for n1,n2 in zip(sp, sp[1:]):
-    #             if 'H' in graph[n1][n2] or 'H' in graph[n2][n1]:
-    #                 continue
-
-    #             # Compute H
-    #             pair = (n1, n2)
-    #             if not pair in common_tracks:
-    #                 pair = tuple(reversed(pair))
-                
-    #             if not pair in common_tracks:
-    #                 # Should never happen?
-    #                 logger.warning("%s not in common tracks" % str(pair))
-    #                 continue
-            
-    #             pair_tracks, p1, p2 = common_tracks[pair]
-    #             H, plane_inliers, plane_outliers = find_planar_homography(common_tracks, pair, graph, error_threshold, ransac_error_threshold, outliers)
-    #             graph[pair[0]][pair[1]]['H'] = H
-    #             graph[pair[1]][pair[0]]['H'] = np.linalg.inv(H)
-
-    #             logger.info("%s inliers: %s outliers %s" % (str(pair), len(plane_inliers), len(plane_outliers)))
-    #             inliers |= plane_inliers
-    #             outliers |= plane_outliers
-    #     except nx.NetworkXNoPath:
-    #         pass
-
     nodes = deque([central_image])
     parallel_args = []
 
@@ -1868,10 +1843,10 @@ def planar_reconstruction(
 
             # Compute H
             pair = (node, n)
-            if not pair in common_tracks:
+            if not pair in common_tracks_index:
                 pair = tuple(reversed(pair))
-            
-            if not pair in common_tracks:
+
+            if not pair in common_tracks_index:
                 # Should never happen?
                 logger.warning("%s not in common tracks" % str(pair))
                 continue
@@ -1881,9 +1856,9 @@ def planar_reconstruction(
             if multithread:
                 graph[pair[0]][pair[1]]['H'] = True
                 graph[pair[1]][pair[0]]['H'] = True
-                parallel_args.append((pair, common_tracks, homogeneous_common_tracks, graph))
+                parallel_args.append((pair, common_tracks_index, common_tracks_data, graph))
             else:
-                _, H, H1 = _compute_planar_homography((pair, common_tracks, homogeneous_common_tracks, graph))
+                _, H, H1 = _compute_planar_homography((pair, common_tracks_index, common_tracks_data, graph))
                 if H is not None:
                     graph[pair[0]][pair[1]]['H'] = H
                     graph[pair[1]][pair[0]]['H'] = H1
@@ -1891,14 +1866,14 @@ def planar_reconstruction(
             nodes.append(n)
     
     if multithread:
-        processes = data.config["processes"]
-        for pair, H, H1 in parallel_map(_compute_planar_homography, parallel_args, processes, backend="multiprocessing"):
+        for pair, H, H1 in parallel_map(_compute_planar_homography, parallel_args, processes, backend="loky"):
             if H is not None:
                 graph[pair[0]][pair[1]]['H'] = H
                 graph[pair[1]][pair[0]]['H'] = H1
             else:
                 del graph[pair[0]][pair[1]]['H']
                 del graph[pair[1]][pair[0]]['H']
+
     # Remove edges that have no homographies
     edges = list(nx.edges(graph))
     for u,v in edges:
