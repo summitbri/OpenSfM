@@ -1635,8 +1635,6 @@ def find_planar_homography(common_tracks_index, common_tracks_data, pair, graph,
     num_trials = 15
     max_iters = 1000
     trials = []
-    # pair_tracks, p1, p2 = common_tracks[pair]
-    # hp1, hp2 = homogeneous_common_tracks[pair]
 
     num_tracks, rec_start, rec_end = common_tracks_index[pair]
     ct_frame = common_tracks_data[rec_start:rec_end].reshape((num_tracks, 8))
@@ -1684,8 +1682,6 @@ def find_planar_homography(common_tracks_index, common_tracks_data, pair, graph,
         r['inliers'] = set(r['pair_inliers'])
 
         for adj_pair, _ in adjacent_pairs:
-            # adj_pair_tracks, new_p1, new_p2 = common_tracks[adj_pair]
-            # new_hp1, new_hp2 = homogeneous_common_tracks[adj_pair]
             adj_num_tracks, adj_rec_start, adj_rec_end = common_tracks_index[adj_pair]
             adj_ct_frame = common_tracks_data[adj_rec_start:adj_rec_end].reshape((adj_num_tracks, 8))
             adj_pair_tracks, new_p1, new_p2, new_hp1, new_hp2 = adj_ct_frame[:,:1].T[0], adj_ct_frame[:,1:3], adj_ct_frame[:,4:6], adj_ct_frame[:,1:4], adj_ct_frame[:,4:7]
@@ -1694,9 +1690,6 @@ def find_planar_homography(common_tracks_index, common_tracks_data, pair, graph,
             if len(inliers_common_tracks) <= 4:
                 continue
             
-            # ict_indices = [adj_pair_tracks.index(i) for i in inliers_common_tracks]
-            # inliers_p1 = new_p1.take(ict_indices, axis=0)
-            # inliers_p2 = new_p2.take(ict_indices, axis=0)
             inliers_p1 = []
             inliers_p2 = []
             for x in range(len(adj_pair_tracks)):
