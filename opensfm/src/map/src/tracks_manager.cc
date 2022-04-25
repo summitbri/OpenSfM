@@ -7,6 +7,23 @@
 
 namespace {
 
+struct TrackLengths{
+    uint16_t imageLen;
+    uint16_t trackIdLen;
+};
+
+struct TrackRecord{
+    int featureID;
+    float x;
+    float y;
+    float scale;
+    uint8_t r;
+    uint8_t g;
+    uint8_t b;
+    // int segm;
+    // int inst;
+};
+
 template <class S>
 int GetTracksFileVersion(S& fstream) {
   const auto current_position = fstream.tellg();
@@ -29,19 +46,30 @@ void WriteToStreamCurrentVersion(S& ostream,
                                  const map::TracksManager& manager) {
   ostream << manager.TRACKS_HEADER << "_v" << manager.TRACKS_VERSION
           << std::endl;
+  
+  TrackLengths tl;
+  TrackRecord tr;
+
   const auto shotsIDs = manager.GetShotIds();
   for (const auto& shotID : shotsIDs) {
     const auto observations = manager.GetShotObservations(shotID);
     for (const auto& observation : observations) {
-      ostream << shotID << "\t" << observation.first << "\t"
-              << observation.second.feature_id << "\t"
-              << observation.second.point(0) << "\t"
-              << observation.second.point(1) << "\t" << observation.second.scale
-              << "\t" << observation.second.color(0) << "\t"
-              << observation.second.color(1) << "\t"
-              << observation.second.color(2) << "\t"
-              << observation.second.segmentation_id << "\t"
-              << observation.second.instance_id << std::endl;
+     
+      tl.imageLen = shotID.length();
+      tl.trackIdLen = observation.first.length();
+      tr.featureID = observation.second.feature_id;
+      tr.x = observation.second.point(0);
+      tr.y = observation.second.point(1);
+      tr.scale = observation.second.scale;
+      tr.r = static_cast<uint8_t>(observation.second.color(0));
+      tr.g = static_cast<uint8_t>(observation.second.color(1));
+      tr.b = static_cast<uint8_t>(observation.second.color(2));
+      //   tr.segm = observation.second.segmentation_id;
+      //   tr.inst = observation.second.instance_id;
+
+      ostream.write(reinterpret_cast<char *>(&tl), sizeof(tl));
+      ostream << shotID << observation.first;
+      ostream.write(reinterpret_cast<char *>(&tr), sizeof(tr));
     }
   }
 }
@@ -164,8 +192,37 @@ map::TracksManager InstanciateFromStreamV2(S& fstream) {
   return manager;
 }
 
+map::TracksManager InstanciateFromFilenameBinaryV2(std::ifstream& fstream, const std::string &filename) {
+  // Close stream, we'll reopen it in binary mode
+  if (fstream.is_open()) fstream.close();
+  std::ifstream fs(filename, std::ios_base::binary);
+
+  map::TracksManager manager;
+
+  // Skip version line
+  char buffer[131072];
+  std::string version;
+  std::getline(fs, version);
+
+  TrackLengths tl;
+  TrackRecord tr;
+
+  while(!fs.eof()){
+      fs.read(reinterpret_cast<char *>(&tl), sizeof(TrackLengths));
+      fs.read(buffer, tl.imageLen + tl.trackIdLen);
+      std::string image(buffer, tl.imageLen);
+      std::string trackID(buffer + tl.imageLen, tl.trackIdLen);
+
+      fs.read(reinterpret_cast<char *>(&tr), sizeof(TrackRecord));
+      auto observation = InstanciateObservation(tr.x, tr.y, tr.scale, tr.featureID, tr.r, tr.g, tr.b, -1, -1);
+      manager.AddObservation(image, trackID, observation);
+  }
+
+  return manager;
+}
+
 template <class S>
-map::TracksManager InstanciateFromStreamT(S& fstream) {
+map::TracksManager InstanciateFromStreamT(S& fstream, const std::string &filename = "") {
   const auto version = GetTracksFileVersion(fstream);
   switch (version) {
     case 0:
@@ -174,6 +231,8 @@ map::TracksManager InstanciateFromStreamT(S& fstream) {
       return InstanciateFromStreamV1(fstream);
     case 2:
       return InstanciateFromStreamV2(fstream);
+    case 102:
+      return InstanciateFromFilenameBinaryV2(fstream, filename);
     default:
       throw std::runtime_error("Unknown tracks manager file version");
   }
@@ -422,14 +481,14 @@ TracksManager TracksManager::MergeTracksManager(
 TracksManager TracksManager::InstanciateFromFile(const std::string& filename) {
   std::ifstream istream(filename);
   if (istream.is_open()) {
-    return InstanciateFromStreamT(istream);
+    return InstanciateFromStreamT(istream, filename);
   } else {
     throw std::runtime_error("Can't read tracks manager file");
   }
 }
 
 void TracksManager::WriteToFile(const std::string& filename) const {
-  std::ofstream ostream(filename);
+  std::ofstream ostream(filename, std::ios_base::binary);
   if (ostream.is_open()) {
     WriteToStreamCurrentVersion(ostream, *this);
   } else {
@@ -438,16 +497,18 @@ void TracksManager::WriteToFile(const std::string& filename) const {
 }
 
 TracksManager TracksManager::InstanciateFromString(const std::string& str) {
-  std::stringstream sstream(str);
-  return InstanciateFromStreamT(sstream);
+//   std::stringstream sstream(str);
+//   return InstanciateFromStreamT(sstream);
+  throw std::runtime_error("Instantiation from string not supported: " + str);
 }
 
 std::string TracksManager::AsString() const {
-  std::stringstream sstream;
-  WriteToStreamCurrentVersion(sstream, *this);
-  return sstream.str();
+//   std::stringstream sstream;
+//   WriteToStreamCurrentVersion(sstream, *this);
+//   return sstream.str();
+  throw std::runtime_error("Serialization from string not supported");
 }
 
 std::string TracksManager::TRACKS_HEADER = "OPENSFM_TRACKS_VERSION";
-int TracksManager::TRACKS_VERSION = 2;
+int TracksManager::TRACKS_VERSION = 102;
 }  // namespace map
