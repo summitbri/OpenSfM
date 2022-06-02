@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 
+import multiprocessing
 import os
 import subprocess
 import sys
-import multiprocessing
 
 import setuptools
 from wheel.bdist_wheel import bdist_wheel
@@ -34,10 +34,10 @@ def configure_c_extension():
         "../opensfm/src",
         "-DPYTHON_EXECUTABLE=" + sys.executable,
     ]
-    if sys.platform == 'win32':
+    if sys.platform == "win32":
         cmake_command += [
-            '-DVCPKG_TARGET_TRIPLET=x64-windows',
-            '-DCMAKE_TOOLCHAIN_FILE=../vcpkg/scripts/buildsystems/vcpkg.cmake'
+            "-DVCPKG_TARGET_TRIPLET=x64-windows",
+            "-DCMAKE_TOOLCHAIN_FILE=../vcpkg/scripts/buildsystems/vcpkg.cmake",
         ]
     subprocess.check_call(cmake_command, cwd="cmake_build")
 
@@ -45,10 +45,14 @@ def configure_c_extension():
 def build_c_extension():
     """Compile C extension."""
     print("Compiling extension...")
-    if sys.platform == 'win32':
-        subprocess.check_call(['cmake', '--build', '.', '--config', 'Release'], cwd='cmake_build')
+    if sys.platform == "win32":
+        subprocess.check_call(
+            ["cmake", "--build", ".", "--config", "Release"], cwd="cmake_build"
+        )
     else:
-        subprocess.check_call(['make', '-j' + str(multiprocessing.cpu_count())], cwd='cmake_build')
+        subprocess.check_call(
+            ["make", "-j" + str(multiprocessing.cpu_count())], cwd="cmake_build"
+        )
 
 
 configure_c_extension()
@@ -83,6 +87,7 @@ setuptools.setup(
             "pyfoundation.*",
             "pymap.*",
             "data/sensor_data.json",
+            "data/camera_calibration.yaml",
             "data/bow/bow_hahog_root_uchar_10000.npz",
             "data/bow/bow_hahog_root_uchar_64.npz",
         ]

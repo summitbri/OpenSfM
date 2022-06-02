@@ -47,7 +47,7 @@ PYBIND11_MODULE(pymap, m) {
   py::module::import("opensfm.pygeometry");
   py::module::import("opensfm.pygeo");
 
-  // Some initial defintions to resolve cyclic dependencies
+  // Some initial definitions to resolve cyclic dependencies
   // Landmark <> Shot
   py::class_<map::Shot> shotCls(m, "Shot");
   // Landmark/Shot/...View <> Map
@@ -77,7 +77,14 @@ PYBIND11_MODULE(pymap, m) {
       .def_readwrite("segmentation", &map::Observation::segmentation_id)
       .def_readwrite("instance", &map::Observation::instance_id)
       .def_readonly_static("NO_SEMANTIC_VALUE",
-                           &map::Observation::NO_SEMANTIC_VALUE);
+                           &map::Observation::NO_SEMANTIC_VALUE)
+      .def(
+          "copy",
+          [](const map::Observation &to_copy) {
+            map::Observation copy = to_copy;
+            return copy;
+          },
+          py::return_value_policy::copy);
 
   py::class_<map::Landmark>(m, "Landmark")
       .def(py::init<const map::LandmarkId &, const Vec3d &>())
@@ -240,12 +247,14 @@ PYBIND11_MODULE(pymap, m) {
       .def(py::init())
       .def(py::init<const map::ShotId &, const Vec2d &>())
       .def_readwrite("shot_id", &map::GroundControlPointObservation::shot_id_)
+      .def_readwrite("uid", &map::GroundControlPointObservation::uid_)
       .def_readwrite("projection",
                      &map::GroundControlPointObservation::projection_);
 
   py::class_<map::GroundControlPoint>(m, "GroundControlPoint")
       .def(py::init())
       .def_readwrite("id", &map::GroundControlPoint::id_)
+      .def_readwrite("survey_point_id", &map::GroundControlPoint::survey_point_id_)
       .def_readwrite("has_altitude", &map::GroundControlPoint::has_altitude_)
       .def_readwrite("lla", &map::GroundControlPoint::lla_)
       .def_property("lla_vec", &map::GroundControlPoint::GetLlaVec3d,

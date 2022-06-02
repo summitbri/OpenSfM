@@ -3,11 +3,13 @@ import logging
 import os
 import shutil
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Iterable, List, IO, Tuple, TextIO, Optional
+from pathlib import Path
+from typing import Union, Dict, Any, Iterable, List, IO, Tuple, TextIO, Optional
 
 import cv2
 import numpy as np
 import pyproj
+from numpy import ndarray
 from opensfm import context, features, geo, pygeometry, pymap, types
 from PIL import Image
 
@@ -18,8 +20,7 @@ import warnings
 warnings.filterwarnings("ignore", category=rasterio.errors.NotGeoreferencedWarning)
 
 
-
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
 logging.getLogger("rasterio").setLevel(logging.WARNING)
 logging.getLogger("PIL").setLevel(logging.WARNING)
 
@@ -38,13 +39,15 @@ def camera_from_json(key: str, obj: Dict[str, Any]) -> pygeometry.Camera:
             obj["focal_x"],
             obj["focal_y"] / obj["focal_x"],
             np.array([obj.get("c_x", 0.0), obj.get("c_y", 0.0)]),
-            np.array([
-                obj.get("k1", 0.0),
-                obj.get("k2", 0.0),
-                obj.get("k3", 0.0),
-                obj.get("p1", 0.0),
-                obj.get("p2", 0.0),
-            ]),
+            np.array(
+                [
+                    obj.get("k1", 0.0),
+                    obj.get("k2", 0.0),
+                    obj.get("k3", 0.0),
+                    obj.get("p1", 0.0),
+                    obj.get("p2", 0.0),
+                ]
+            ),
         )
     elif pt == "fisheye":
         camera = pygeometry.Camera.create_fisheye(
@@ -55,58 +58,66 @@ def camera_from_json(key: str, obj: Dict[str, Any]) -> pygeometry.Camera:
             obj["focal_x"],
             obj["focal_y"] / obj["focal_x"],
             np.array([obj.get("c_x", 0.0), obj.get("c_y", 0.0)]),
-            np.array([
-                obj.get("k1", 0.0),
-                obj.get("k2", 0.0),
-                obj.get("k3", 0.0),
-                obj.get("k4", 0.0),
-            ]),
+            np.array(
+                [
+                    obj.get("k1", 0.0),
+                    obj.get("k2", 0.0),
+                    obj.get("k3", 0.0),
+                    obj.get("k4", 0.0),
+                ]
+            ),
         )
     elif pt == "fisheye62":
         camera = pygeometry.Camera.create_fisheye62(
             obj["focal_x"],
             obj["focal_y"] / obj["focal_x"],
             np.array([obj.get("c_x", 0.0), obj.get("c_y", 0.0)]),
-            np.array([
-                obj.get("k1", 0.0),
-                obj.get("k2", 0.0),
-                obj.get("k3", 0.0),
-                obj.get("k4", 0.0),
-                obj.get("k5", 0.0),
-                obj.get("k6", 0.0),
-                obj.get("p1", 0.0),
-                obj.get("p2", 0.0),
-            ]),
+            np.array(
+                [
+                    obj.get("k1", 0.0),
+                    obj.get("k2", 0.0),
+                    obj.get("k3", 0.0),
+                    obj.get("k4", 0.0),
+                    obj.get("k5", 0.0),
+                    obj.get("k6", 0.0),
+                    obj.get("p1", 0.0),
+                    obj.get("p2", 0.0),
+                ]
+            ),
         )
     elif pt == "fisheye624":
         camera = pygeometry.Camera.create_fisheye624(
             obj["focal_x"],
             obj["focal_y"] / obj["focal_x"],
             np.array([obj.get("c_x", 0.0), obj.get("c_y", 0.0)]),
-            np.array([
-                obj.get("k1", 0.0),
-                obj.get("k2", 0.0),
-                obj.get("k3", 0.0),
-                obj.get("k4", 0.0),
-                obj.get("k5", 0.0),
-                obj.get("k6", 0.0),
-                obj.get("p1", 0.0),
-                obj.get("p2", 0.0),
-                obj.get("s0", 0.0),
-                obj.get("s1", 0.0),
-                obj.get("s2", 0.0),
-                obj.get("s3", 0.0),
-            ]),
+            np.array(
+                [
+                    obj.get("k1", 0.0),
+                    obj.get("k2", 0.0),
+                    obj.get("k3", 0.0),
+                    obj.get("k4", 0.0),
+                    obj.get("k5", 0.0),
+                    obj.get("k6", 0.0),
+                    obj.get("p1", 0.0),
+                    obj.get("p2", 0.0),
+                    obj.get("s0", 0.0),
+                    obj.get("s1", 0.0),
+                    obj.get("s2", 0.0),
+                    obj.get("s3", 0.0),
+                ]
+            ),
         )
     elif pt == "radial":
         camera = pygeometry.Camera.create_radial(
             obj["focal_x"],
             obj["focal_y"] / obj["focal_x"],
             np.array([obj.get("c_x", 0.0), obj.get("c_y", 0.0)]),
-            np.array([
-                obj.get("k1", 0.0),
-                obj.get("k2", 0.0),
-            ]),
+            np.array(
+                [
+                    obj.get("k1", 0.0),
+                    obj.get("k2", 0.0),
+                ]
+            ),
         )
     elif pt == "simple_radial":
         camera = pygeometry.Camera.create_simple_radial(
@@ -694,14 +705,21 @@ def camera_from_vector(
     elif projection_type == "fisheye624":
         fx, fy, cx, cy, k1, k2, k3, k4, k5, k6, p1, p2, s0, s1, s2, s3 = parameters
         camera = pygeometry.Camera.create_fisheye624(
-            fx, fy / fx, np.array([cx, cy]), np.array([k1, k2, k3, k4, k5, k6, p1, p2, s0, s1, s2, s3])
+            fx,
+            fy / fx,
+            np.array([cx, cy]),
+            np.array([k1, k2, k3, k4, k5, k6, p1, p2, s0, s1, s2, s3]),
         )
     elif projection_type == "radial":
         fx, fy, cx, cy, k1, k2 = parameters
-        camera = pygeometry.Camera.create_radial(fx, fy / fx, np.array([cx, cy]), np.array([k1, k2]))
+        camera = pygeometry.Camera.create_radial(
+            fx, fy / fx, np.array([cx, cy]), np.array([k1, k2])
+        )
     elif projection_type == "simple_radial":
         fx, fy, cx, cy, k1 = parameters
-        camera = pygeometry.Camera.create_simple_radial(fx, fy / fx, np.array([cx, cy]), k1)
+        camera = pygeometry.Camera.create_simple_radial(
+            fx, fy / fx, np.array([cx, cy]), k1
+        )
     elif projection_type == "dual":
         focal, k1, k2, transition = parameters
         camera = pygeometry.Camera.create_dual(transition, focal, k1, k2)
@@ -813,14 +831,18 @@ def camera_to_vector(camera: pygeometry.Camera) -> List[float]:
 def _read_gcp_list_lines(
     lines: Iterable[str],
     projection,
-    exif: Dict[str, Dict[str, Any]],
+    exifs: Dict[str, Dict[str, Any]],
 ) -> List[pymap.GroundControlPoint]:
     points = {}
     for line in lines:
         words = line.split(None, 5)
         easting, northing, alt, pixel_x, pixel_y = map(float, words[:5])
-        shot_id = words[5].strip()
         key = (easting, northing, alt)
+
+        shot_tokens = words[5].split(None)
+        shot_id = shot_tokens[0]
+        if shot_id not in exifs:
+            continue
 
         if key in points:
             point = points[key]
@@ -832,7 +854,7 @@ def _read_gcp_list_lines(
             else:
                 has_altitude = True
             if projection is not None:
-                lon, lat = projection(easting, northing, inverse=True)
+                lat, lon = projection.transform(easting, northing)
             else:
                 lon, lat = easting, northing
 
@@ -844,7 +866,7 @@ def _read_gcp_list_lines(
             points[key] = point
 
         # Convert 2D coordinates
-        d = exif[shot_id]
+        d = exifs[shot_id]
         coordinates = features.normalized_image_coordinates(
             np.array([[pixel_x, pixel_y]]), d["width"], d["height"]
         )[0]
@@ -875,14 +897,21 @@ def _parse_utm_projection_string(line: str) -> str:
     return s.format(zone_number, zone_hemisphere)
 
 
-def _parse_projection(line: str):
+def _parse_projection(line: str) -> Optional[pyproj.Transformer]:
     """Build a proj4 from the GCP format line."""
+    crs_4326 = pyproj.CRS.from_epsg(4326)
     if line.strip() == "WGS84":
         return None
     elif line.upper().startswith("WGS84 UTM"):
-        return pyproj.Proj(_parse_utm_projection_string(line))
+        return pyproj.Transformer.from_proj(
+            pyproj.CRS(_parse_utm_projection_string(line)), crs_4326
+        )
     elif "+proj" in line:
-        return pyproj.Proj(line)
+        return pyproj.Transformer.from_proj(pyproj.CRS(line), crs_4326)
+    elif line.upper().startswith("EPSG:"):
+        return pyproj.Transformer.from_proj(
+            pyproj.CRS.from_epsg(int(line.split(":")[1])), crs_4326
+        )
     else:
         raise ValueError("Un-supported geo system definition: {}".format(line))
 
@@ -978,21 +1007,20 @@ def json_dump_kwargs(minify: bool = False) -> Dict[str, Any]:
     return {"indent": indent, "ensure_ascii": False, "separators": separators}
 
 
-def json_dump(data, fout, minify=False):
+def json_dump(data, fout: IO[str], minify: bool = False) -> None:
     kwargs = json_dump_kwargs(minify)
     return json.dump(data, fout, **kwargs)
 
 
-def json_dumps(data, minify=False):
+def json_dumps(data, minify: bool = False) -> str:
     kwargs = json_dump_kwargs(minify)
     return json.dumps(data, **kwargs)
 
-
-def json_load(fp):
+def json_load(fp: Union[IO[str], IO[bytes]]) -> Any:
     return json.load(fp)
 
 
-def json_loads(text):
+def json_loads(text: Union[str, bytes]) -> Any:
     return json.loads(text)
 
 
@@ -1038,7 +1066,7 @@ def ply_header(
     return header
 
 
-def points_to_ply_string(vertices: List[str], point_num_views: bool = False):
+def points_to_ply_string(vertices: List[str], point_num_views: bool = False) -> str:
     header = ply_header(len(vertices), point_num_views=point_num_views)
     return "\n".join(header + vertices + [""])
 
@@ -1049,7 +1077,7 @@ def reconstruction_to_ply(
     no_cameras: bool = False,
     no_points: bool = False,
     point_num_views: bool = False,
-):
+) -> str:
     """Export reconstruction points as a PLY string."""
     vertices = []
 
@@ -1117,46 +1145,37 @@ def point_cloud_to_ply(
     labels: np.ndarray,
     fp: TextIO,
 ) -> None:
-    """Export depthmap points as a PLY string"""
-    lines = _point_cloud_to_ply_lines(points, normals, colors, labels)
-    fp.writelines(lines)
-
-
-def _point_cloud_to_ply_lines(
-    points: np.ndarray,
-    normals: np.ndarray,
-    colors: np.ndarray,
-    labels: np.ndarray,
-):
-    yield "ply\n"
-    yield "format ascii 1.0\n"
-    yield "element vertex {}\n".format(len(points))
-    yield "property float x\n"
-    yield "property float y\n"
-    yield "property float z\n"
-    yield "property float nx\n"
-    yield "property float ny\n"
-    yield "property float nz\n"
-    yield "property uchar diffuse_red\n"
-    yield "property uchar diffuse_green\n"
-    yield "property uchar diffuse_blue\n"
-    yield "property uchar class\n"
-    yield "end_header\n"
+    fp.write("ply\n")
+    fp.write("format ascii 1.0\n")
+    fp.write("element vertex {}\n".format(len(points)))
+    fp.write("property float x\n")
+    fp.write("property float y\n")
+    fp.write("property float z\n")
+    fp.write("property float nx\n")
+    fp.write("property float ny\n")
+    fp.write("property float nz\n")
+    fp.write("property uchar diffuse_red\n")
+    fp.write("property uchar diffuse_green\n")
+    fp.write("property uchar diffuse_blue\n")
+    fp.write("property uchar class\n")
+    fp.write("end_header\n")
 
     template = "{:.4f} {:.4f} {:.4f} {:.3f} {:.3f} {:.3f} {} {} {} {}\n"
     for i in range(len(points)):
         p, n, c, l = points[i], normals[i], colors[i], labels[i]
-        yield template.format(
-            p[0],
-            p[1],
-            p[2],
-            n[0],
-            n[1],
-            n[2],
-            int(c[0]),
-            int(c[1]),
-            int(c[2]),
-            int(l),
+        fp.write(
+            template.format(
+                p[0],
+                p[1],
+                p[2],
+                n[0],
+                n[1],
+                n[2],
+                int(c[0]),
+                int(c[1]),
+                int(c[2]),
+                int(l),
+            )
         )
 
 
@@ -1178,7 +1197,7 @@ def open_rt(path: str) -> IO[Any]:
 
 def imread(
     path: str, grayscale: bool = False, unchanged: bool = False, anydepth: bool = False
-):
+) -> ndarray:
     _, ext = os.path.splitext(path)
     if ext.lower() == ".tiff" or ext.lower() == ".tif":
         return imread_rasterio(path, grayscale, unchanged, anydepth)
@@ -1270,7 +1289,7 @@ def imread_rasterio(path, grayscale=False, unchanged=False, anydepth=False):
     return image
 
 
-def imwrite(path, image: np.ndarray):
+def imwrite(path, image: np.ndarray) -> None:
     _, ext = os.path.splitext(path)
     if ext.lower() == ".tiff" or ext.lower() == ".tif":
         return imwrite_rasterio(path, image)
@@ -1310,16 +1329,17 @@ def imwrite_rasterio(path, image: np.ndarray):
             f.write(image[:,:,b], b + 1)
 
 
-def image_size_from_fileobject(fb):
+def image_size_from_fileobject(
+    fb: Union[IO[bytes], bytes, Path, str, TextIO]
+) -> Tuple[int, int]:
     """Height and width of an image."""
-    try:
+    if isinstance(fb, TextIO):
+        image = imread(fb.name)
+        return image.shape[:2]
+    else:
         with Image.open(fb) as img:
             width, height = img.size
             return height, width
-    except Exception:
-        # Slower fallback
-        image = imread(fb.name)
-        return image.shape[:2]
 
 
 def image_size(path: str) -> Tuple[int, int]:
@@ -1359,7 +1379,7 @@ class IoFilesystemBase(ABC):
 
     @classmethod
     @abstractmethod
-    def open(cls, *args, **kwargs):
+    def open(cls, *args, **kwargs) -> IO[Any]:
         pass
 
     @classmethod
@@ -1399,11 +1419,12 @@ class IoFilesystemBase(ABC):
 
 
 class IoFilesystemDefault(IoFilesystemBase):
-    def __init__(self):
+    def __init__(self) -> None:
         self.type = "default"
 
     @classmethod
     def exists(cls, path: str) -> str:
+        # pyre-fixme[7]: Expected `str` but got `bool`.
         return os.path.exists(path)
 
     @classmethod
@@ -1412,10 +1433,12 @@ class IoFilesystemDefault(IoFilesystemBase):
 
     @classmethod
     def isfile(cls, path: str) -> str:
+        # pyre-fixme[7]: Expected `str` but got `bool`.
         return os.path.isfile(path)
 
     @classmethod
     def isdir(cls, path: str) -> str:
+        # pyre-fixme[7]: Expected `str` but got `bool`.
         return os.path.isdir(path)
 
     @classmethod
@@ -1435,7 +1458,7 @@ class IoFilesystemDefault(IoFilesystemBase):
         os.symlink(src_path, dst_path, **kwargs)
 
     @classmethod
-    def open(cls, *args, **kwargs):
+    def open(cls, *args, **kwargs) -> IO[Any]:
         return open(*args, **kwargs)
 
     @classmethod
@@ -1479,4 +1502,5 @@ class IoFilesystemDefault(IoFilesystemBase):
 
     @classmethod
     def timestamp(cls, path: str) -> str:
+        # pyre-fixme[7]: Expected `str` but got `float`.
         return os.path.getmtime(path)

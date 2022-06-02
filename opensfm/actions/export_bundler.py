@@ -5,7 +5,7 @@ from opensfm import io
 from opensfm.dataset import DataSet
 
 
-def run_dataset(data: DataSet, list_path, bundle_path, undistorted):
+def run_dataset(data: DataSet, list_path, bundle_path, undistorted) -> None:
     """Export reconstruction to bundler format.
 
     Args:
@@ -36,8 +36,8 @@ def run_dataset(data: DataSet, list_path, bundle_path, undistorted):
 
 
 def export_bundler(
-    image_list, reconstructions, track_manager, bundle_file_path, list_file_path
-):
+    image_list, reconstructions, track_manager, bundle_file_path: str, list_file_path: str
+) -> None:
     """
     Generate a reconstruction file that is consistent with Bundler's format
     """
@@ -61,7 +61,7 @@ def export_bundler(
                 shot = shots[shot_id]
                 camera = shot.camera
                 if shot.camera.projection_type == "brown":
-                    # Will aproximate Brown model, not optimal
+                    # Will approximate Brown model, not optimal
                     focal_normalized = camera.focal_x
                 else:
                     focal_normalized = camera.focal
