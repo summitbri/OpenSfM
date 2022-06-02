@@ -338,10 +338,10 @@ class Report:
         if table_count > 0:
             abs_error_type = "gps" if table_count == 2 else "gcp"
 
-            a_ce90 = self.stats[abs_error_type + "_errors"]["ce90"]
-            a_le90 = self.stats[abs_error_type + "_errors"]["le90"]
-            r_ce90 = self.stats["3d_errors"]["ce90"]
-            r_le90 = self.stats["3d_errors"]["le90"]
+            a_ce90 = self.stats[abs_error_type + "_errors"].get("ce90", 0)
+            a_le90 = self.stats[abs_error_type + "_errors"].get("le90", 0)
+            r_ce90 = self.stats["3d_errors"].get("ce90", 0)
+            r_le90 = self.stats["3d_errors"].get("le90", 0)
 
             rows = []
             if a_ce90 > 0 and a_le90 > 0:
