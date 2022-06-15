@@ -6,11 +6,13 @@ import numpy as np
 
 logger: logging.Logger = logging.getLogger(__name__)
 
-def run_dataset(dataset: DataSetBase, output: Optional[str]) -> None:
+def run_dataset(dataset: DataSetBase, output: Optional[str], output_tracks: Optional[str], rolling_shutter_readout: Optional[float]) -> None:
     """Rolling shutter correct a reconstructions.
 
     Args:
         output: output reconstruction JSON
+        output_tracks: output tracks CSV
+        rolling_shutter_readout: sensor readout time (ms)
     """
 
     logger.info("Starting rolling shutter correction")
@@ -88,14 +90,17 @@ def run_dataset(dataset: DataSetBase, output: Optional[str]) -> None:
             for s in all_shots:
                 logger.info("%s (%+.2f,%+.2f,%+.2f) m/s" % (s, *exifs[s]['speed']))
 
+            logger.info("Correcting observations...")
 
             for track_id in reconstruction.points:
                 obs = tracks_handler.get_observations(track_id)
-                coordinates = reconstruction.points[track_id].coordinates # 3D
+                rec_point = reconstruction.points[track_id]
+                coordinates = rec_point.coordinates # 3D
 
                 for shot_id in obs:
                     shot = reconstruction.shots[shot_id]
-                    point = obs[shot_id].point # Original 2D observation
+                    ob = obs[shot_id]
+                    point = ob.point # Original 2D observation
 
                     # Reproject 3D point to camera to get reprojected observation
                     reprojected_point = shot.project(coordinates)
@@ -108,7 +113,7 @@ def run_dataset(dataset: DataSetBase, output: Optional[str]) -> None:
                     # https://www.sciencedirect.com/science/article/abs/pii/S0924271619302849
 
                     pixel_y = shot.camera.normalized_to_pixel_coordinates(point)[1]
-                    rolling_shutter_readout = exifs[shot_id].get('rolling_shutter', 0) / 1000.0
+                    rolling_shutter_readout = exifs[shot_id].get('rolling_shutter', rolling_shutter_readout) / 1000.0
                     origin = shot.pose.get_origin()
 
                     new_origin = origin + exifs[shot_id]['speed'] * rolling_shutter_readout * (pixel_y - shot.camera.height / 2.0) / shot.camera.height
@@ -120,17 +125,34 @@ def run_dataset(dataset: DataSetBase, output: Optional[str]) -> None:
                     # Restore previous pose
                     shot.pose.set_origin(origin)
 
-                    corrected_point = adjusted_reprojected_point + error
+                    corrected_point = adjusted_reprojected_point - error
 
+                    corrected_obs = obs[shot_id].copy()
+                    corrected_obs.point = corrected_point
+                    reconstruction.add_observation(shot_id, track_id, corrected_obs)
                     
-                    print(corrected_point, point)
-                    exit(1)
-                exit(1)
+                    ob.point = corrected_point
+                    tracks_manager.add_observation(shot_id, track_id, ob)
+            
+            points_before = len(reconstruction.points)
+            logger.info("Triangulated points before rolling shutter correction: %s" % points_before)
 
+            gcp = dataset.load_ground_control_points()
+            orec.bundle(reconstruction, camera_priors, rig_cameras_priors, None, dataset.config)
+            orec.align_reconstruction(reconstruction, gcp, dataset.config)
+            orec.bundle(reconstruction, camera_priors, rig_cameras_priors, None, dataset.config)
+            orec.retriangulate(tracks_manager, reconstruction, dataset.config)
+            orec.bundle(reconstruction, camera_priors, rig_cameras_priors, None, dataset.config)
+            orec.remove_outliers(reconstruction, dataset.config)
+            orec.paint_reconstruction(dataset, tracks_manager, reconstruction)
 
-        #     reconstruction.add_correspondences_from_tracks_manager(tracks_manager)
-        #     gcp = dataset.load_ground_control_points()
-        #     orec.bundle(
-        #         reconstruction, camera_priors, rig_cameras_priors, gcp, dataset.config
-        #     )
-    # dataset.save_reconstruction(reconstructions, output)
+            points_after = len(reconstruction.points)
+            logger.info("Triangulated points after rolling shutter correction: %s (%+.0f)" % (points_after, points_after - points_before))
+            
+            if output_tracks is not None:
+                dataset.save_tracks_manager(tracks_manager, output_tracks)
+
+        else:
+            logger.warning("Empty reconstruction, nothing to do")
+
+    dataset.save_reconstruction(reconstructions, output)

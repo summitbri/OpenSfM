@@ -73,11 +73,11 @@ find_package(Glog REQUIRED)
 # Ceres1 exposes just ceres.
 # - if there's no such target, cmake will convert it into -lceres
 # and the linker will fail
-if(Ceres_ceres_FOUND)
+#if(Ceres_ceres_FOUND)
     set(CERES_LIBRARIES Ceres::ceres)
-else()
-    set(CERES_LIBRARIES ceres)
-endif()
+#else()
+#    set(CERES_LIBRARIES ceres)
+#endif()
 
 find_package(OpenCV)
 # OpenCV's OpenCVConfig will enforce imgcodecs for < 3.0
