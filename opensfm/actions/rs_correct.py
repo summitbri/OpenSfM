@@ -137,29 +137,28 @@ def run_dataset(dataset: DataSetBase, output: Optional[str], output_tracks: Opti
                     ob.point = corrected_point
                     tracks_manager.add_observation(shot_id, track_id, ob)
 
-                    if shot_id not in features:
-                        features[shot_id] = dataset.load_features(shot_id)
+            #         if shot_id not in features:
+            #             features[shot_id] = dataset.load_features(shot_id)
 
-                    if shot_id not in feature_ids:
-                        feature_ids[shot_id] = {}
+            #         if shot_id not in feature_ids:
+            #             feature_ids[shot_id] = {}
 
-                    if features[shot_id]:
-                        features[shot_id].points[corrected_obs.id][:2] = corrected_obs.point
-                        feature_ids[shot_id][corrected_obs.id] = True
+            #         if features[shot_id]:
+            #             features[shot_id].points[corrected_obs.id][:2] = corrected_obs.point
+            #             feature_ids[shot_id][corrected_obs.id] = True
             
 
-            for shot_id in features:
-                ids = np.array(list(feature_ids[shot_id].keys()))
-                features[shot_id].points = features[shot_id].points[ids]
-                features[shot_id].descriptors = features[shot_id].descriptors[ids]
-                features[shot_id].colors  = features[shot_id].colors[ids]
-                if features[shot_id].semantic is not None:
-                    features[shot_id].semantic = features[shot_id].semantic[ids]
+            # for shot_id in features:
+            #     ids = np.array(list(feature_ids[shot_id].keys()))
+            #     features[shot_id].points = features[shot_id].points[ids]
+            #     features[shot_id].descriptors = features[shot_id].descriptors[ids]
+            #     features[shot_id].colors  = features[shot_id].colors[ids]
+            #     if features[shot_id].semantic is not None:
+            #         features[shot_id].semantic = features[shot_id].semantic[ids]
 
-                logger.info("Writing corrected and trimmed features for %s" % shot_id)
-                dataset.save_features(shot_id, features[shot_id])
+            #     logger.info("Writing corrected and trimmed features for %s" % shot_id)
+            #     dataset.save_features(shot_id, features[shot_id])
 
-            exit(1)
             points_before = len(reconstruction.points)
             logger.info("Triangulated points before rolling shutter correction: %s" % points_before)
 
