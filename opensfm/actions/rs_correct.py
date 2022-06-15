@@ -53,7 +53,7 @@ def run_dataset(dataset: DataSetBase, output: Optional[str], output_tracks: Opti
                 # Assume first image is stationary as most mission planning
                 # software starts taking shots from stationary position
                 prev_shot = all_shots[0]
-                exifs[prev_shot]['speed'] = [0.0, 0.0, 0.0]
+                exifs[prev_shot]['speed'] = np.array([0.0, 0.0, 0.0])
                 prev_shot_origin = reconstruction.get_shot(prev_shot).pose.get_origin()
                 prev_shot_time = exifs[prev_shot]['capture_time'] # seconds
                 prev_camera_id = exifs[prev_shot]['camera']
@@ -91,6 +91,9 @@ def run_dataset(dataset: DataSetBase, output: Optional[str], output_tracks: Opti
                 logger.info("%s (%+.2f,%+.2f,%+.2f) m/s" % (s, *exifs[s]['speed']))
 
             logger.info("Correcting observations...")
+
+            features = {}
+            feature_ids = {}
 
             for track_id in reconstruction.points:
                 obs = tracks_handler.get_observations(track_id)
@@ -133,7 +136,30 @@ def run_dataset(dataset: DataSetBase, output: Optional[str], output_tracks: Opti
                     
                     ob.point = corrected_point
                     tracks_manager.add_observation(shot_id, track_id, ob)
+
+                    if shot_id not in features:
+                        features[shot_id] = dataset.load_features(shot_id)
+
+                    if shot_id not in feature_ids:
+                        feature_ids[shot_id] = {}
+
+                    if features[shot_id]:
+                        features[shot_id].points[corrected_obs.id][:2] = corrected_obs.point
+                        feature_ids[shot_id][corrected_obs.id] = True
             
+
+            for shot_id in features:
+                ids = np.array(list(feature_ids[shot_id].keys()))
+                features[shot_id].points = features[shot_id].points[ids]
+                features[shot_id].descriptors = features[shot_id].descriptors[ids]
+                features[shot_id].colors  = features[shot_id].colors[ids]
+                if features[shot_id].semantic is not None:
+                    features[shot_id].semantic = features[shot_id].semantic[ids]
+
+                logger.info("Writing corrected and trimmed features for %s" % shot_id)
+                dataset.save_features(shot_id, features[shot_id])
+
+            exit(1)
             points_before = len(reconstruction.points)
             logger.info("Triangulated points before rolling shutter correction: %s" % points_before)
 
