@@ -469,18 +469,21 @@ struct AddProjectionError {
     constexpr static int CameraSize = T::Size;
     constexpr static int ShotSize = 6;
 
+    const bool is_rig_camera_useful =
+        IsRigCameraUseful(*obs.shot->GetRigCamera());
     ceres::CostFunction *cost_function = nullptr;
     if (use_analytical) {
       using ErrorType = typename ErrorTraitsAnalytic<T, CameraSize>::Type;
       cost_function = new ErrorType(obs.camera->GetValue().GetProjectionType(),
-                                    obs.coordinates, obs.std_deviation);
+                                    obs.coordinates, obs.std_deviation,
+                                    is_rig_camera_useful);
     } else {
       using ErrorType = typename ErrorTraits<T>::Type;
       cost_function =
           new ceres::AutoDiffCostFunction<ErrorType, ErrorSize, CameraSize,
-                                          ShotSize, ShotSize, 3>(
-              new ErrorType(obs.camera->GetValue().GetProjectionType(),
-                            obs.coordinates, obs.std_deviation));
+                                          ShotSize, ShotSize, 3>(new ErrorType(
+              obs.camera->GetValue().GetProjectionType(), obs.coordinates,
+              obs.std_deviation, is_rig_camera_useful));
     }
     problem->AddResidualBlock(cost_function, loss,
                               obs.camera->GetValueData().data(),
@@ -494,6 +497,8 @@ struct ComputeResidualError {
   template <class T>
   static void Apply(bool use_analytical,
                     const PointProjectionObservation &obs) {
+    const bool is_rig_camera_useful =
+        IsRigCameraUseful(*obs.shot->GetRigCamera());
     if (use_analytical) {
       constexpr static int CameraSize = T::Size;
       using ErrorType = typename ErrorTraitsAnalytic<T, CameraSize>::Type;
@@ -501,7 +506,7 @@ struct ComputeResidualError {
 
       VecNd<ErrorSize> residuals;
       ErrorType error(obs.camera->GetValue().GetProjectionType(),
-                      obs.coordinates, 1.0);
+                      obs.coordinates, 1.0, is_rig_camera_useful);
       const double *params[] = {
           obs.camera->GetValueData().data(),
           obs.shot->GetRigInstance()->GetValueData().data(),
@@ -515,7 +520,7 @@ struct ComputeResidualError {
 
       VecNd<ErrorSize> residuals;
       ErrorType error(obs.camera->GetValue().GetProjectionType(),
-                      obs.coordinates, 1.0);
+                      obs.coordinates, 1.0, is_rig_camera_useful);
       error(obs.camera->GetValueData().data(),
             obs.shot->GetRigInstance()->GetValueData().data(),
             obs.shot->GetRigCamera()->GetValueData().data(),
@@ -919,19 +924,13 @@ void BundleAdjuster::Run() {
         up_vector_loss = new ceres::CauchyLoss(1);
       }
 
-      auto &shot = shots_.at(a.shot_id);
-
-      auto *up_vector_cost_function =
-          new ceres::DynamicAutoDiffCostFunction<UpVectorError>(
+      ceres::CostFunction *up_cost_function =
+          new ceres::AutoDiffCostFunction<UpVectorError, 3, 6, 6>(
               new UpVectorError(a.up_vector, a.std_deviation));
-      up_vector_cost_function->AddParameterBlock(6);
-      up_vector_cost_function->SetNumResiduals(3);
-
-      auto camera_data = shot.GetRigCamera()->GetValueData().data();
-      auto instance_data = shot.GetRigInstance()->GetValueData().data();
-      up_vector_cost_function->AddParameterBlock(6);
-      problem.AddResidualBlock(up_vector_cost_function, up_vector_loss,
-                               instance_data, camera_data);
+      auto &shot = shots_.at(a.shot_id);
+      problem.AddResidualBlock(up_cost_function, up_vector_loss,
+                               shot.GetRigInstance()->GetValueData().data(),
+                               shot.GetRigCamera()->GetValueData().data());
     }
   }
 
