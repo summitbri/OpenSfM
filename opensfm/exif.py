@@ -630,6 +630,8 @@ class EXIF:
 
 
 def hard_coded_calibration(exif) -> Optional[Dict[str, Any]]:
+    return None # Disable hard coded calibrations
+
     focal = exif["focal_ratio"]
     fmm35 = int(round(focal * 36.0))
     make = exif["make"].strip().lower()

@@ -6,12 +6,10 @@ import numpy as np
 
 logger: logging.Logger = logging.getLogger(__name__)
 
-def run_dataset(dataset: DataSetBase, output: Optional[str], output_tracks: Optional[str], rolling_shutter_readout: Optional[float]) -> None:
+def run_dataset(dataset: DataSetBase, rolling_shutter_readout: Optional[float]) -> None:
     """Rolling shutter correct a reconstructions.
 
     Args:
-        output: output reconstruction JSON
-        output_tracks: output tracks CSV
         rolling_shutter_readout: sensor readout time (ms)
     """
 
@@ -116,10 +114,10 @@ def run_dataset(dataset: DataSetBase, output: Optional[str], output_tracks: Opti
                     # https://www.sciencedirect.com/science/article/abs/pii/S0924271619302849
 
                     pixel_y = shot.camera.normalized_to_pixel_coordinates(point)[1]
-                    rolling_shutter_readout = exifs[shot_id].get('rolling_shutter', rolling_shutter_readout) / 1000.0
+                    rs_time = exifs[shot_id].get('rolling_shutter', rolling_shutter_readout) / 1000.0
                     origin = shot.pose.get_origin()
 
-                    new_origin = origin + exifs[shot_id]['speed'] * rolling_shutter_readout * (pixel_y - shot.camera.height / 2.0) / shot.camera.height
+                    new_origin = origin + exifs[shot_id]['speed'] * rs_time * (pixel_y - shot.camera.height / 2.0) / shot.camera.height
                     
                     # Reproject the point using the new origin
                     shot.pose.set_origin(new_origin)
@@ -130,53 +128,26 @@ def run_dataset(dataset: DataSetBase, output: Optional[str], output_tracks: Opti
 
                     corrected_point = adjusted_reprojected_point - error
 
-                    corrected_obs = obs[shot_id].copy()
-                    corrected_obs.point = corrected_point
-                    reconstruction.add_observation(shot_id, track_id, corrected_obs)
-                    
-                    ob.point = corrected_point
-                    tracks_manager.add_observation(shot_id, track_id, ob)
+                    if shot_id not in features:
+                        features[shot_id] = dataset.load_features(shot_id)
 
-            #         if shot_id not in features:
-            #             features[shot_id] = dataset.load_features(shot_id)
+                    if shot_id not in feature_ids:
+                        feature_ids[shot_id] = {}
 
-            #         if shot_id not in feature_ids:
-            #             feature_ids[shot_id] = {}
-
-            #         if features[shot_id]:
-            #             features[shot_id].points[corrected_obs.id][:2] = corrected_obs.point
-            #             feature_ids[shot_id][corrected_obs.id] = True
+                    if features[shot_id]:
+                        features[shot_id].points[corrected_obs.id][:2] = corrected_point
+                        feature_ids[shot_id][corrected_obs.id] = True
             
+            for shot_id in features:
+                ids = np.array(list(feature_ids[shot_id].keys()))
+                features[shot_id].points = features[shot_id].points[ids]
+                features[shot_id].descriptors = features[shot_id].descriptors[ids]
+                features[shot_id].colors  = features[shot_id].colors[ids]
+                if features[shot_id].semantic is not None:
+                    features[shot_id].semantic = features[shot_id].semantic[ids]
 
-            # for shot_id in features:
-            #     ids = np.array(list(feature_ids[shot_id].keys()))
-            #     features[shot_id].points = features[shot_id].points[ids]
-            #     features[shot_id].descriptors = features[shot_id].descriptors[ids]
-            #     features[shot_id].colors  = features[shot_id].colors[ids]
-            #     if features[shot_id].semantic is not None:
-            #         features[shot_id].semantic = features[shot_id].semantic[ids]
-
-            #     logger.info("Writing corrected and trimmed features for %s" % shot_id)
-            #     dataset.save_features(shot_id, features[shot_id])
-
-            points_before = len(reconstruction.points)
-            logger.info("Triangulated points before rolling shutter correction: %s" % points_before)
-
-            gcp = dataset.load_ground_control_points()
-            orec.bundle(reconstruction, camera_priors, rig_cameras_priors, None, dataset.config)
-            orec.align_reconstruction(reconstruction, gcp, dataset.config)
-            orec.bundle(reconstruction, camera_priors, rig_cameras_priors, None, dataset.config)
-            orec.retriangulate(tracks_manager, reconstruction, dataset.config)
-            orec.bundle(reconstruction, camera_priors, rig_cameras_priors, None, dataset.config)
-            orec.remove_outliers(reconstruction, dataset.config)
-            orec.paint_reconstruction(dataset, tracks_manager, reconstruction)
-
-            points_after = len(reconstruction.points)
-            logger.info("Triangulated points after rolling shutter correction: %s (%+.0f)" % (points_after, points_after - points_before))
-            
-            if output_tracks is not None:
-                dataset.save_tracks_manager(tracks_manager, output_tracks)
-
+                logger.info("Writing corrected and trimmed features for %s" % shot_id)
+                dataset.save_features(shot_id, features[shot_id])
         else:
             logger.warning("Empty reconstruction, nothing to do")
 
