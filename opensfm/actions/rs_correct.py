@@ -108,16 +108,16 @@ def run_dataset(dataset: DataSetBase, rolling_shutter_readout: Optional[float]) 
 
                     error = reprojected_point - point
 
-                    # Calculate new camera pose using the formula
-                    # used in: A two-step approach for the correction of rolling
+                    # Calculate new camera pose using the ideas
+                    # from: A two-step approach for the correction of rolling
                     # shutter distortion in UAV photogrammetry
                     # https://www.sciencedirect.com/science/article/abs/pii/S0924271619302849
 
                     pixel_y = shot.camera.normalized_to_pixel_coordinates(point)[1]
                     rs_time = exifs[shot_id].get('rolling_shutter', rolling_shutter_readout) / 1000.0
                     origin = shot.pose.get_origin()
-
-                    new_origin = origin + exifs[shot_id]['speed'] * rs_time * (pixel_y - shot.camera.height / 2.0) / shot.camera.height
+                    
+                    new_origin = origin - exifs[shot_id]['speed'] * rs_time * (pixel_y - shot.camera.height / 2.0) / shot.camera.height
                     
                     # Reproject the point using the new origin
                     shot.pose.set_origin(new_origin)

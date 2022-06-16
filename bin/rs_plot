@@ -36,8 +36,8 @@ def plot_features(image, points, orig_points):
     for p, s, a in zip(pixels_orig, sizes_orig, angles_orig):
         orig_patches.append(Wedge(p, s, a + 1, a - 1))
 
-    collection = PatchCollection(patches, alpha=0.5, edgecolor='r', facecolor='w')
-    orig_collection = PatchCollection(orig_patches, alpha=1, edgecolor='b', facecolor='w')
+    collection = PatchCollection(patches, alpha=0.5, edgecolor='b', facecolor='w')
+    orig_collection = PatchCollection(orig_patches, alpha=0.5, edgecolor='r', facecolor='w')
     
     ax.add_collection(orig_collection)
     ax.add_collection(collection)
