@@ -196,7 +196,7 @@ def td_errors(data: DataSetBase, tracks_manager, reconstructions):
                 if len(os) >= 2:
                     thresholds = len(os) * [reproj_threshold]
                     valid_triangulation, X = pygeometry.triangulate_bearings_midpoint(
-                        os, bs, thresholds, np.radians(min_ray_angle_degrees)
+                        os, bs, thresholds, np.radians(min_ray_angle_degrees), np.radians(180.0 - min_ray_angle_degrees)
                     )
                     if valid_triangulation:
                         ray_errors.append(X - p.coordinates)

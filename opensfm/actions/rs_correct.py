@@ -135,8 +135,8 @@ def run_dataset(dataset: DataSetBase, rolling_shutter_readout: Optional[float]) 
                         feature_ids[shot_id] = {}
 
                     if features[shot_id]:
-                        features[shot_id].points[corrected_obs.id][:2] = corrected_point
-                        feature_ids[shot_id][corrected_obs.id] = True
+                        features[shot_id].points[ob.id][:2] = corrected_point
+                        feature_ids[shot_id][ob.id] = True
             
             for shot_id in features:
                 ids = np.array(list(feature_ids[shot_id].keys()))
@@ -150,5 +150,3 @@ def run_dataset(dataset: DataSetBase, rolling_shutter_readout: Optional[float]) 
                 dataset.save_features(shot_id, features[shot_id])
         else:
             logger.warning("Empty reconstruction, nothing to do")
-
-    dataset.save_reconstruction(reconstructions, output)
