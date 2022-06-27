@@ -18,7 +18,6 @@ target_link_libraries(foundation
     Eigen3::Eigen
   PRIVATE
     ${GFLAGS_LIBRARY}
-    ${GLOG_LIBRARY}
 )
 target_include_directories(foundation
   PUBLIC
@@ -37,6 +36,8 @@ if (OPENSFM_BUILD_TESTS)
     target_link_libraries(foundation_test
                           PUBLIC
                           foundation
-                          ${TEST_MAIN})
+                          ${TEST_MAIN}
+                          ${GLOG_LIBRARY}
+                          )
     add_test(foundation_test foundation_test)
 endif()
