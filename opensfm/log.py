@@ -5,8 +5,7 @@ import vmem
 
 def setup() -> None:
     logging.basicConfig(
-        format="%(asctime)s %(levelname)s: %(message)s", level=logging.DEBUG, force=True
-    )
+        format="%(asctime)s %(levelname)s: %(message)s", level=logging.DEBUG)
 
 
 def memory_usage() -> float:
