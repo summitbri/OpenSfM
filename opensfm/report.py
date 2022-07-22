@@ -35,6 +35,7 @@ class Report:
         self.margin = 10
         self.cell_height = 7
         self.total_size = 190
+        self.odm_stat = 'odm_processing_statistics'
 
         if stats is not None:
             self.stats = stats
@@ -181,8 +182,8 @@ class Report:
             ],
             [
                 "Processing Time",
-                #f"{self.stats['processing_statistics']['steps_times']['Total Time']:.2f} seconds",
-                self.stats['odm_processing_statistics']['total_time_human'],
+                self.stats[self.odm_stat]['total_time_human'] if self.odm_stat in self.stats else \
+                f"{self.stats['processing_statistics']['steps_times']['Total Time']:.2f} seconds",
             ],
             ["Capture Start", self.stats["processing_statistics"]["start_date"]],
             ["Capture End", self.stats["processing_statistics"]["end_date"]],
@@ -248,10 +249,10 @@ class Report:
                 ])
 
         # GSD (if available)
-        if self.stats['odm_processing_statistics'].get('average_gsd'):
+        if self.odm_stat in self.stats and self.stats[self.odm_stat].get('average_gsd'):
             rows.insert(3, [
                 "Average Ground Sampling Distance (GSD)",
-                f"{self.stats['odm_processing_statistics']['average_gsd']:.1f} cm"
+                f"{self.stats[self.odm_stat]['average_gsd']:.1f} cm"
             ])
 
         row_gps_gcp = [" / ".join(geo_string) + " errors"]
