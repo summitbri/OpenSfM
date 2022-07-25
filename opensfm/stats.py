@@ -19,6 +19,7 @@ from opensfm import io, multiview, feature_loader, pymap, types, pygeometry
 from opensfm.dataset import DataSet, DataSetBase
 from opensfm import features
 
+mpl.use('Agg', force=False)
 RESIDUAL_PIXEL_CUTOFF = 4
 
 
