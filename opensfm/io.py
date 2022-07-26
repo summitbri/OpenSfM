@@ -1497,9 +1497,13 @@ class IoFilesystemDefault(IoFilesystemBase):
 
     @classmethod
     def image_size(cls, path: str) -> Tuple[int, int]:
-        with cls.open(path, "rb") as fb:
-            return image_size_from_fileobject(fb)
-
+        try:
+            with cls.open(path, "rb") as fb:
+                return image_size_from_fileobject(fb)
+        except:
+            # Fallback to rasterio (RGB 32bit floats fail with PIL)
+            with rasterio.open(path, "r") as r:
+                return r.height, r.width
     @classmethod
     def timestamp(cls, path: str) -> str:
         # pyre-fixme[7]: Expected `str` but got `float`.
