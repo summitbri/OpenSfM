@@ -53,6 +53,10 @@ class Report:
             fwb.write(bytestring)
 
     def _make_table(self, columns_names, rows, row_header=False) -> None:
+        if len(rows) == 0:
+            logger.warning("Cannot make table (rows missing)")
+            return
+
         self.pdf.set_font("Helvetica", "", self.h3)
         self.pdf.set_line_width(0.3)
 
