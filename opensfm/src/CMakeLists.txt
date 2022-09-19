@@ -61,13 +61,15 @@ endif()
 if (ADDITIONAL_INCLUDE_DIRS)
 	include_directories(${ADDITIONAL_INCLUDE_DIRS})
 endif()
+if (YET_ADDITIONAL_INCLUDE_DIRS)
+    include_directories(${YET_ADDITIONAL_INCLUDE_DIRS})
+endif()
 
 find_package(LAPACK)
 find_package(SuiteSparse)
 find_package(Eigen3 REQUIRED)
 find_package(Ceres REQUIRED)
 find_package(Gflags REQUIRED)
-find_package(Glog REQUIRED)
 
 find_package(OpenCV)
 # OpenCV's OpenCVConfig will enforce imgcodecs for < 3.0
@@ -97,6 +99,9 @@ endif()
 
 ####### Testing #######
 option(OPENSFM_BUILD_TESTS "Build OpenSfM unit tests." on)
+if(OPENSFM_BUILD_TESTS)
+find_package(Glog REQUIRED)
+endif()
 
 if (OPENSFM_BUILD_TESTS)
   enable_testing()
